@@ -766,6 +766,52 @@ final class DeviceConnection {
         return out
     }
 
+    /// An installed app's icon, rendered by the device at `side` points.
+    ///
+    /// `app_service` (the CoreDevice one, over the same RSD link as the install)
+    /// draws it from the app's own icons, so this works for any app on the
+    /// device — not just ones whose .ipa is still in Documents.
+    func appIcon(bundleID: String, side: CGFloat) throws -> Data? {
+        guard let adapter, let handshake else { throw fail("not connected") }
+        var client: OpaquePointer?
+        try check(app_service_connect_rsd(adapter, handshake, &client),
+                  "app_service_connect_rsd failed")
+        guard let client else { throw fail("app_service client was null") }
+        defer { app_service_free(client) }
+
+        var icon: UnsafeMutablePointer<IconDataC>?
+        let error = bundleID.withCString {
+            app_service_fetch_app_icon(client, $0, Float(side), Float(side), 2, 1, &icon)
+        }
+        try check(error, "app_service_fetch_app_icon failed")
+        guard let icon else { return nil }
+        defer { app_service_free_icon_data(icon) }
+        guard let bytes = icon.pointee.data, icon.pointee.data_len > 0 else { return nil }
+        return Data(bytes: bytes, count: Int(icon.pointee.data_len))
+    }
+
+    /// Launches an installed app on the device.
+    ///
+    /// `app_service` starts it the way the Home Screen would, so no URL scheme
+    /// is needed. Returns the launched process ID when the device reports one.
+    @discardableResult
+    func launchApp(bundleID: String) throws -> UInt32 {
+        guard let adapter, let handshake else { throw fail("not connected") }
+        var client: OpaquePointer?
+        try check(app_service_connect_rsd(adapter, handshake, &client),
+                  "app_service_connect_rsd failed")
+        guard let client else { throw fail("app_service client was null") }
+        defer { app_service_free(client) }
+
+        var response: UnsafeMutablePointer<LaunchResponseC>?
+        let error = bundleID.withCString {
+            app_service_launch_app(client, $0, nil, 0, 1, 0, nil, &response)
+        }
+        try check(error, "app_service_launch_app failed")
+        defer { if let response { app_service_free_launch_response(response) } }
+        return response?.pointee.pid ?? 0
+    }
+
     /// Removes an installed app from the device.
     ///
     /// `installation_proxy` does this over the same RSD link as the install, so

@@ -3441,6 +3441,22 @@ final class Engine: ObservableObject {
     // app and installs it over itself, reusing the pipeline's sign and install
     // steps without touching the one-click checklist.
 
+    /// An installed app's icon, from the device itself.
+    @MainActor
+    func appIcon(bundleID: String, side: CGFloat = 60) async throws -> Data? {
+        try await ensurePairingConnection()
+        return try await onDeviceQueue { try self.connection.appIcon(bundleID: bundleID, side: side) }
+    }
+
+    /// Launches an installed app the way the Home Screen does.
+    @MainActor
+    func launchApp(bundleID: String, name: String) async throws {
+        try await ensurePairingConnection()
+        log("Launching \(name)…")
+        let pid = try await onDeviceQueue { try self.connection.launchApp(bundleID: bundleID) }
+        log(pid > 0 ? "Launched \(name) (pid \(pid))." : "Launched \(name).")
+    }
+
     /// Removes an app from the device, data and all, over the same link the
     /// install uses.
     @MainActor

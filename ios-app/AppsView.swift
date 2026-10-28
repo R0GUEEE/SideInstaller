@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 // MARK: - Models
 
@@ -346,6 +347,9 @@ final class SideloadedAppsManager: ObservableObject {
     /// The apps a refresh can act on: an installed app whose IPA is still in
     /// Documents. Rebuilt on every load.
     @Published private(set) var refreshable: [RefreshJob] = []
+    /// Installed apps' icons, by bundle ID. Read from the device once and kept
+    /// on disk, so the list doesn't re-fetch them on every launch.
+    @Published private(set) var icons: [String: UIImage] = [:]
     /// Apps on the page with no IPA to sign again from, for the note that says
     /// why they aren't included.
     @Published private(set) var unrefreshable = 0
@@ -407,6 +411,7 @@ final class SideloadedAppsManager: ObservableObject {
                 await rebuildRefreshable()
                 hasLoaded = true
                 lastRefreshed = Date()
+                loadIcons(for: apps.map(\.bundleID))
                 engine.log("Sideloaded apps: \(apps.count) sideloaded, \(profiles.count) profile(s) decoded.")
             } catch {
                 let message = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
@@ -421,6 +426,47 @@ final class SideloadedAppsManager: ObservableObject {
         }
     }
 
+    // MARK: - Icons
+
+    func icon(for bundleID: String) -> UIImage? { icons[bundleID] }
+
+    private static var iconDirectory: URL {
+        let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        return base.appendingPathComponent("AppIcons", isDirectory: true)
+    }
+
+    private static func iconFile(for bundleID: String) -> URL {
+        let safe = bundleID.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "icon"
+        return iconDirectory.appendingPathComponent(String(safe.suffix(120)) + ".png")
+    }
+
+    /// Reads app icons off the device, one at a time, off the main actor. A
+    /// cached PNG is used when there is one.
+    private func loadIcons(for bundleIDs: [String]) {
+        let missing = bundleIDs.filter { icons[$0] == nil }
+        guard !missing.isEmpty else { return }
+        Task {
+            for bundleID in missing {
+                if let cached = Self.cachedIcon(bundleID) {
+                    await MainActor.run { self.icons[bundleID] = cached }
+                    continue
+                }
+                guard let data = try? await engine.appIcon(bundleID: bundleID),
+                      let image = UIImage(data: data) else { continue }
+                await MainActor.run { self.icons[bundleID] = image }
+                try? FileManager.default.createDirectory(at: Self.iconDirectory,
+                                                         withIntermediateDirectories: true)
+                try? data.write(to: Self.iconFile(for: bundleID), options: .atomic)
+            }
+        }
+    }
+
+    private static func cachedIcon(_ bundleID: String) -> UIImage? {
+        guard let data = try? Data(contentsOf: iconFile(for: bundleID)) else { return nil }
+        return UIImage(data: data)
+    }
+
     // MARK: - Refresh all
 
     /// Re-signs and reinstalls every refreshable app, one at a time (they share
@@ -431,10 +477,18 @@ final class SideloadedAppsManager: ObservableObject {
 
     /// Re-signs and reinstalls one app, chosen from its row.
     func refresh(_ job: RefreshJob) {
-        refresh([job], summary: nil)
+        refresh([job], summary: nil, enforceTeam: true)
     }
 
-    private func refresh(_ queue: [RefreshJob], summary: String?) {
+    /// Re-signs one app whatever team signed it before — the case for an app
+    /// installed by someone else's certificate, a wildcard one included. The
+    /// new profile carries this Apple ID, and because the bundle ID doesn't
+    /// change the install replaces the app rather than adding a copy.
+    func resign(_ job: RefreshJob) {
+        refresh([job], summary: nil, enforceTeam: false)
+    }
+
+    private func refresh(_ queue: [RefreshJob], summary: String?, enforceTeam: Bool = true) {
         guard !isRefreshing, !isWorking, !queue.isEmpty else { return }
         guard !engine.isRunning else {
             lastError = ErrorHelp.explained(L("An install is already running. Wait for it to finish, then refresh."))
@@ -471,13 +525,15 @@ final class SideloadedAppsManager: ObservableObject {
                 let job = jobs[index]
                 // Skip apps signed by a different team: the new bundle ID would
                 // install a second copy instead of replacing the app.
-                if let team = engine.signingTeamID, let installed = job.teamID, installed != team {
+                if enforceTeam, let team = engine.signingTeamID, let installed = job.teamID,
+                   installed != team {
                     jobs[index].state = .failed(
                         L("Signed by team %@, not the one you're signed in as — refreshing it here would install a second copy.", installed))
                     continue
                 }
                 jobs[index].state = .working
-                refreshStatus = L("Refreshing %@", job.name)
+                refreshStatus = enforceTeam ? L("Refreshing %@", job.name)
+                                            : L("Re-signing %@", job.name)
                 do {
                     try await engine.refreshInstalledApp(named: job.name, ipaPath: job.ipa.path)
                     jobs[index].state = .done
@@ -564,6 +620,8 @@ struct AppsView: View {
     /// The configured sources, searched when an app might have an update.
     @ObservedObject var sources: SourceStore
     @State private var pendingUninstall: SideloadedAppStatus?
+    /// The app whose Info sheet is up.
+    @State private var infoTarget: SideloadedAppStatus?
     /// Observed so labels redraw when the language changes.
     @EnvironmentObject private var loc: Localizer
     /// Observed for `installProgress` during a refresh.
@@ -584,7 +642,6 @@ struct AppsView: View {
                 // Errors show as a popup, which `RootView` lays over the app.
                 appList
                 refreshNote
-                unmatchedSection
             }
             .padding(20)
             .pageColumn()
@@ -596,6 +653,9 @@ struct AppsView: View {
         .background(AppBackground())
         .toolbar { settingsToolbarItem(isPresented: $showSettings) }
         .sheet(isPresented: $showSettings) { SettingsView() }
+        .sheet(item: $infoTarget) { status in
+            AppInfoSheet(status: status, manager: manager)
+        }
         .onAppear { manager.autoLoad() }
         .confirmationDialog(L("Uninstall this app?"),
                             isPresented: Binding(get: { pendingUninstall != nil },
@@ -851,28 +911,88 @@ struct AppsView: View {
         }
     }
 
-    /// The actions an installed app offers: refresh its seven days, update to
-    /// the newest release a source carries, or remove it.
+    /// The actions an installed app offers, laid out like SideStore's: launch it,
+    /// restart its seven days, re-sign it under this Apple ID whatever signed it
+    /// before, reinstall it, look at its profile, or remove it.
     @ViewBuilder
     private func appMenu(_ status: SideloadedAppStatus) -> some View {
+        Button {
+            launch(status)
+        } label: {
+            Label(L("Open"), systemImage: "arrow.up.forward.app")
+        }
+
+        Divider()
+
         if let job = manager.refreshable.first(where: { $0.bundleID == status.app.bundleID }) {
             Button {
                 manager.refresh(job)
             } label: {
-                Label(L("Re-sign (refresh 7 days)"), systemImage: "signature")
+                Label(L("Refresh"), systemImage: "arrow.clockwise")
             }
-        }
-        if let update = updateCandidate(for: status) {
+            // The same job, without the "same team" guard: for an app signed by
+            // a wildcard certificate or someone else's account.
             Button {
-                engine.installLinkedIPA(update.url)
+                manager.resign(job)
             } label: {
-                Label(L("Update to %@", update.version), systemImage: "arrow.down.circle")
+                Label(L("Re-sign with my Apple ID"), systemImage: "signature")
+            }
+            Menu {
+                Button {
+                    manager.resign(job)
+                } label: {
+                    Label(L("From the .ipa on this device"), systemImage: "doc")
+                }
+                if let update = updateCandidate(for: status) {
+                    Button {
+                        engine.installLinkedIPA(update.url)
+                    } label: {
+                        Label(L("From a source (%@)", update.version), systemImage: "square.grid.2x2")
+                    }
+                }
+            } label: {
+                Label(L("Reinstall"), systemImage: "arrow.triangle.2.circlepath")
             }
         }
+
+        Menu {
+            if status.profiles.isEmpty {
+                Text(L("No profile found for it"))
+            }
+            ForEach(status.profiles) { profile in
+                Button {
+                    infoTarget = status
+                } label: {
+                    Text("\(profile.teamName) · \(ExpiryUrgency.text(for: profile))")
+                }
+            }
+        } label: {
+            Label(L("Provisioning Profile"), systemImage: "doc.text.magnifyingglass")
+        }
+
+        Button {
+            infoTarget = status
+        } label: {
+            Label(L("Info"), systemImage: "info.circle")
+        }
+
+        Divider()
+
         Button(role: .destructive) {
             pendingUninstall = status
         } label: {
-            Label(L("Uninstall"), systemImage: "trash")
+            Label(L("Delete App"), systemImage: "trash")
+        }
+    }
+
+    private func launch(_ status: SideloadedAppStatus) {
+        Task {
+            do {
+                try await engine.launchApp(bundleID: status.app.bundleID, name: status.app.name)
+            } catch {
+                manager.lastError = (error as? LocalizedError)?.errorDescription
+                    ?? String(describing: error)
+            }
         }
     }
 
@@ -914,20 +1034,15 @@ struct AppsView: View {
         let profile = status.current
         let urgency = ExpiryUrgency.of(profile)
         return PanelCard {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: "app.dashed")
-                    .font(.title3)
-                    .foregroundStyle(Theme.brand)
-                VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .center, spacing: 12) {
+                icon(for: status)
+                VStack(alignment: .leading, spacing: 3) {
                     Text(status.app.name)
                         .font(.subheadline.weight(.semibold))
-                    // The App ID, which is what a profile is issued against —
-                    // the bundle id alone doesn't say which team signed it.
-                    Text(profile?.applicationIdentifier ?? status.app.applicationIdentifier ?? status.app.bundleID)
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.secondary)
                         .lineLimit(1)
-                        .truncationMode(.middle)
+                    Text(L("Sideloaded"))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                     expiryLabel(profile, urgency: urgency)
                 }
                 Spacer(minLength: 8)
@@ -943,6 +1058,28 @@ struct AppsView: View {
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.tertiary)
             }
+        }
+    }
+
+    /// The app's own icon, or its initials until the device hands one over.
+    @ViewBuilder
+    private func icon(for status: SideloadedAppStatus) -> some View {
+        let side: CGFloat = 48
+        if let image = manager.icon(for: status.app.bundleID) {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFill()
+                .frame(width: side, height: side)
+                .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+        } else {
+            ZStack {
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    .fill(Theme.brand)
+                Text(String(status.app.name.prefix(1)).uppercased())
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(.white)
+            }
+            .frame(width: side, height: side)
         }
     }
 
@@ -981,188 +1118,3 @@ struct AppsView: View {
     /// Profiles not used by any installed app (e.g. from deleted apps). Useful
     /// because a free Apple ID is limited to ten App IDs a week.
     @ViewBuilder
-    private var unmatchedSection: some View {
-        if !manager.unmatched.isEmpty {
-            VStack(spacing: 14) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(L("Unused profiles"))
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    Text(L("Issued to App IDs no installed app is running on."))
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                // Enumerated so rows redraw on a language change (a plain
-                // `ForEach` over an `Equatable` array may skip re-rendering).
-                ForEach(Array(manager.unmatched.enumerated()), id: \.element.id) { idx, profile in
-                    PanelCard {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(profile.appIDName.isEmpty ? profile.bundleIdentifier : profile.appIDName)
-                                .font(.subheadline.weight(.semibold))
-                            Text(profile.applicationIdentifier)
-                                .font(.caption.monospaced())
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                            Text(ExpiryUrgency.text(for: profile))
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(ExpiryUrgency.of(profile).color)
-                        }
-                    }
-                    .cascadeItem(7 + manager.entries.count + idx)
-                }
-            }
-            .cascadeItem(6 + manager.entries.count)
-        }
-    }
-}
-
-// MARK: - Detail
-
-/// Everything the device knows about one app: its App ID, the profile it is
-/// living on, and the older profiles left behind by earlier signings.
-private struct AppProfileDetail: View {
-    let status: SideloadedAppStatus
-
-    @EnvironmentObject private var loc: Localizer
-
-    var body: some View {
-        ScrollView {
-            VStack(spacing: 18) {
-                appCard.cascadeItem(0)
-                if let current = status.current {
-                    profileCard(current, isCurrent: true).cascadeItem(1)
-                } else {
-                    noProfileCard.cascadeItem(1)
-                }
-                if !status.superseded.isEmpty {
-                    HStack {
-                        Text(L("Older profiles"))
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                    }
-                    .cascadeItem(2)
-                    ForEach(Array(status.superseded.enumerated()), id: \.element.id) { idx, profile in
-                        profileCard(profile, isCurrent: false).cascadeItem(3 + idx)
-                    }
-                }
-            }
-            .padding(20)
-            .pageColumn()
-        }
-        .background(AppBackground())
-        .navigationTitle(status.app.name)
-        .navigationBarTitleDisplayMode(.inline)
-    }
-
-    private var appCard: some View {
-        PanelCard {
-            VStack(alignment: .leading, spacing: 10) {
-                Text(status.app.name)
-                    .font(.title3.weight(.bold))
-                field(L("Bundle identifier"), status.app.bundleID)
-                if let identifier = status.app.applicationIdentifier ?? status.current?.applicationIdentifier {
-                    field(L("App ID"), identifier)
-                }
-                if let version = status.app.version {
-                    field(L("Version"), version)
-                }
-            }
-        }
-    }
-
-    private func profileCard(_ profile: ProvisioningProfile, isCurrent: Bool) -> some View {
-        let urgency = ExpiryUrgency.of(profile)
-        return PanelCard {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 8) {
-                    Image(systemName: urgency.symbol)
-                        .foregroundStyle(urgency.color)
-                    Text(ExpiryUrgency.text(for: profile))
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(urgency.color)
-                    Spacer(minLength: 6)
-                    if isCurrent {
-                        Text(L("In use"))
-                            .font(.caption2.weight(.bold))
-                            .foregroundStyle(Theme.accent2)
-                            .padding(.horizontal, 9)
-                            .padding(.vertical, 4)
-                            .background(Capsule().fill(Theme.accent.opacity(0.18)))
-                    }
-                }
-                if !profile.appIDName.isEmpty {
-                    field(L("Profile name"), profile.appIDName)
-                }
-                if !profile.teamName.isEmpty {
-                    field(L("Team"), profile.teamName)
-                }
-                if let team = profile.teamIdentifier {
-                    field(L("Team ID"), team)
-                }
-                if profile.isWildcard {
-                    // A wildcard App ID can't hold per-app capabilities, which
-                    // is the usual reason an entitlement won't stick.
-                    Text(L("Wildcard App ID — it covers any bundle id under it, and can't carry app-specific capabilities."))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                if let created = profile.creationDate {
-                    field(L("Issued"), created.formatted(
-                        Date.FormatStyle(date: .abbreviated, time: .shortened).locale(Localizer.locale)))
-                }
-                field(L("Profile UUID"), profile.uuid)
-                capabilities(profile)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func capabilities(_ profile: ProvisioningProfile) -> some View {
-        let keys = profile.capabilityKeys
-        if !keys.isEmpty {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(L("Capabilities"))
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                ForEach(keys, id: \.self) { key in
-                    Text(key)
-                        .font(.caption2.monospaced())
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-            }
-            .padding(.top, 2)
-        }
-    }
-
-    private var noProfileCard: some View {
-        CalloutCard(tint: .orange) {
-            VStack(alignment: .leading, spacing: 6) {
-                Label(L("No matching profile"), systemImage: "exclamationmark.triangle.fill")
-                    .font(.subheadline.weight(.semibold))
-                Text(L("The device has no provisioning profile for this App ID. The app may already have stopped launching — install it again to fix that."))
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-
-    /// A labelled value with selectable text, so identifiers can be copied.
-    private func field(_ label: String, _ value: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(label)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-            Text(value)
-                .font(.caption.monospaced())
-                .textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-}
