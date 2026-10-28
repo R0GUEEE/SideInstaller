@@ -32,7 +32,9 @@ final class AppSettings: ObservableObject {
     @Published var backgroundRefresh: Bool {
         didSet {
             save(backgroundRefresh, "backgroundRefresh")
-            if backgroundRefresh { BackgroundKeepAlive.shared.scheduleRefresh() }
+            if backgroundRefresh {
+                Task { @MainActor in BackgroundKeepAlive.shared.scheduleRefresh() }
+            }
         }
     }
 

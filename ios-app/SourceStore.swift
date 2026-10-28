@@ -11,6 +11,10 @@ import Foundation
 /// ancient or missing.
 final class SourceStore: ObservableObject {
 
+    /// The one instance: the marketplace, the app manager's update lookup and
+    /// the diagnostics report all read the same list.
+    static let shared = SourceStore()
+
     /// One source as the list shows it.
     struct Loaded: Identifiable {
         let url: URL

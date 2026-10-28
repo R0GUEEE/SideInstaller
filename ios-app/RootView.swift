@@ -71,7 +71,7 @@ struct RootView: View {
     @StateObject private var sideBySideManager = SideBySideManager()
     /// Sources are loaded once here so their list survives tab switches and the
     /// Inspect page can be opened from a link.
-    @StateObject private var sourceStore = SourceStore()
+    @StateObject private var sourceStore = SourceStore.shared
     /// The last two-factor prompt shown, so the sheet keeps its content while it
     /// slides away after the sign-in clears it.
     @State private var shownTwoFactor: TwoFactorPhase?
