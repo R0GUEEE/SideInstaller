@@ -5,6 +5,22 @@ All notable changes to SideInstaller are documented here.
 ## Unreleased
 
 ### Added
+- **Settings, properly.** New sections and screens, all driving real behaviour rather than
+  describing it:
+  - **Sources & storage › Telegram channels** — use the RSS bridge (off means preview-off channels
+    can't be read at all), scan on launch, every-page limit (5–100 pages), default depth for a new
+    channel, background refresh and the post-background grace period, local server auto-start, port
+    and live state.
+  - **Marketplace** — the order it opens with (name/newest/oldest/size, kept in sync with the menu),
+    and whether entries that only open another app (Telegram posts) are listed.
+  - **Storage** — each regenerable cache (source indexes, source documents, app icons, generated
+    sources) with its size and a way to clear it, and the total. Your .ipa library, pairing files and
+    certificates aren't in the list and can't be cleared from it.
+  - **Diagnostics** — exports a text file with the settings, storage report, source states, channels
+    and the last 300 log lines (no Apple ID, no passwords), and resets these settings without touching
+    accounts, certificates or sources.
+
+### Added
 - **App configuration is in Settings too.** A row there opens the same toolkit the Install screen does,
   with the number of pending changes on it — identity, `Info.plist` keys, entitlements, extensions,
   tweaks and injectors, import/export and reset.

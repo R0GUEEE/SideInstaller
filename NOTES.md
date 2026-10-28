@@ -1601,3 +1601,24 @@ Measured against the live previews:
   sorts each into changes / additions / no-ops / invalid. `PlistEdit.object` decides "invalid" — a
   key whose value can't be typed is caught here rather than during signing.
 
+### Settings that do something
+
+- `AppSettings` is the single place for behaviour that used to be constants: bridge use, page
+  limits, launch scan, server auto-start and port, background refresh and grace period, marketplace
+  order and filtering, default depth. Every key has a default matching the old behaviour, so an
+  install that never opens Settings is unchanged.
+- **Wired end to end**, not decorative: `TelegramSource` skips the bridge when it's off,
+  `BackgroundKeepAlive.scheduleRefresh` refuses when background refresh is off,
+  `LocalSourceServer.start` takes the configured port, `TelegramStudio.allPageLimit` reads the
+  limit, `MarketplaceView`'s initial sort and its non-direct filter come from settings, and the app
+  starts the server/scan at launch when asked.
+- **`SourceStore.shared`**: the store had been created by `RootView`, which left the diagnostics
+  report (and anything else outside the view tree) unable to read the source list. It's a singleton
+  now and `RootView` holds that instance.
+- **Storage** measures `SourceIndex`, `Sources`, `AppIcons` and `Documents/Telegram` — everything the
+  app can rebuild. The `.ipa` library, pairing files and certificates are deliberately absent: they
+  are the user's, not cache.
+- **Diagnostics** is a text file built from settings + storage + sources + channels + the tail of the
+  log. It never includes an Apple ID or a password, which is why the log is passed through the same
+  redactor the problem report uses.
+
