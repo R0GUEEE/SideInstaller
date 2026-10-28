@@ -1112,9 +1112,144 @@ struct AppsView: View {
             .padding(.vertical, 8)
         }
     }
+}
 
-    // MARK: Leftover profiles
+// MARK: - Info
 
-    /// Profiles not used by any installed app (e.g. from deleted apps). Useful
-    /// because a free Apple ID is limited to ten App IDs a week.
-    @ViewBuilder
+/// What the device says about one installed app, plus the actions that don't
+/// belong in a context menu.
+struct AppInfoSheet: View {
+    @EnvironmentObject private var loc: Localizer
+    @EnvironmentObject private var engine: Engine
+    let status: SideloadedAppStatus
+    @ObservedObject var manager: SideloadedAppsManager
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 18) {
+                    header
+                    identityCard
+                    profilesCard
+                    jitCard
+                }
+                .padding(20)
+                .pageColumn()
+            }
+            .background(AppBackground())
+            .navigationTitle(L("Info"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(L("Done")) { dismiss() }
+                }
+            }
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: 14) {
+            if let image = manager.icon(for: status.app.bundleID) {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 64, height: 64)
+                    .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+            } else {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 15, style: .continuous).fill(Theme.brand)
+                    Text(String(status.app.name.prefix(1)).uppercased())
+                        .font(.title.weight(.bold))
+                        .foregroundStyle(.white)
+                }
+                .frame(width: 64, height: 64)
+            }
+            VStack(alignment: .leading, spacing: 3) {
+                Text(status.app.name)
+                    .font(.title3.weight(.semibold))
+                Text(status.app.version.map { L("Version %@", $0) } ?? L("Version unknown"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var identityCard: some View {
+        PanelCard {
+            VStack(alignment: .leading, spacing: 10) {
+                row(L("Bundle ID"), status.app.bundleID, mono: true)
+                if let appID = status.app.applicationIdentifier {
+                    row(L("App ID"), appID, mono: true)
+                }
+                row(L("Signed by"), status.current?.teamName ?? L("unknown"))
+                row(L("Expires"), ExpiryUrgency.text(for: status.current))
+                if status.current?.isWildcard == true {
+                    Text(L("Its profile is a wildcard, so this app was never tied to its own App ID. Re-signing it here issues one for your Apple ID and replaces the app in place."))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+
+    private var profilesCard: some View {
+        PanelCard {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(L("Provisioning profiles"))
+                    .font(.subheadline.weight(.semibold))
+                if status.profiles.isEmpty {
+                    Text(L("None found on the device."))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(status.profiles) { profile in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(profile.teamName.isEmpty ? profile.applicationIdentifier : profile.teamName)
+                            .font(.caption)
+                        Text("\(profile.applicationIdentifier) · \(ExpiryUrgency.text(for: profile))")
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+        }
+    }
+
+    /// JIT isn't something an installer can toggle: the process has to be
+    /// started under a debugger and have its memory pages made executable, which
+    /// means a debugserver session on the device. This build ships no debugger
+    /// client, so the row says so rather than offering a switch that does
+    /// nothing.
+    private var jitCard: some View {
+        PanelCard {
+            VStack(alignment: .leading, spacing: 8) {
+                Label(L("JIT"), systemImage: "bolt.fill")
+                    .font(.subheadline.weight(.semibold))
+                Text(L("Enabling JIT for an app means launching it under a debugger and leaving its memory writable — a debugserver session over the developer disk image. This build has no debugger client, so JIT can't be turned on from here yet. Apps that need it (emulators, some interpreters) run interpreted until then."))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func row(_ label: String, _ value: String, mono: Bool = false) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(width: 74, alignment: .leading)
+            Text(value)
+                .font(mono ? .caption.monospaced() : .caption)
+                .lineLimit(2)
+                .truncationMode(.middle)
+            Spacer(minLength: 0)
+        }
+    }
+}
