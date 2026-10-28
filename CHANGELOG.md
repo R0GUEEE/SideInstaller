@@ -4,6 +4,17 @@ All notable changes to SideInstaller are documented here.
 
 ## Unreleased
 
+### Changed
+- **Installs finish on their own.** The "this app needs an App ID" stop before signing is off by
+  default; the run logs what it registers and carries on to installation. Settings › Renewals ›
+  Installing turns the prompt back on for anyone who wants the confirmation.
+- **My Apps can update as well as re-sign.** Each app's menu is now *Update or reinstall*: from the
+  stored `.ipa`, straight to a newer release when a source carries one, or — always available — a
+  search of the marketplace for that bundle ID. A card above the list offers **Install all updates**
+  when several are waiting, one at a time so they share the device link politely.
+- **The marketplace knows what's installed.** An app's page shows the version on the device and says
+  when the release you're looking at is newer, so "should I update?" is answered before you tap.
+
 ### Added
 - **Installed builds are kept, so they can be re-signed later.** Every `.ipa` SideInstaller installs
   is copied into `Application Support/IPACache`, keyed by bundle ID — the signed bundle on the device

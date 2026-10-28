@@ -1658,3 +1658,16 @@ weakly in their callbacks.
 - **Stored builds** and **Device** are read-only views over that: list/install/share/delete, and the
   device's own facts (lockdownd `ProductType`, `BuildVersion`, `UniqueDeviceID`, volume capacity).
 
+### Finishing installs, updating from My Apps
+
+- **`askBeforeAppIDCost`** (Settings, default off) gates the App ID prompt. Off, `confirmAppIDCost`
+  logs the bundle ID it's registering and returns, so `runOneClick` proceeds straight through sign
+  and install. The prompt was the only stop between "tap Install" and the app being on the device.
+- **`MarketplaceRouter`**: a published `pendingSearch` plus a tab switch in `RootView`. My Apps uses
+  it when an app has no newer release in the configured sources — the marketplace is then the place
+  to look, pre-filtered to that bundle ID.
+- **Install all updates** sequences `installLinkedIPA` calls and waits for `engine.isRunning` to clear
+  between them: they share one device link and one signing queue, so firing them together would race.
+- **Installed state in the marketplace** comes from the cached inventory (`SideloadedAppsManager`),
+  so the app page can say "Installed 1.2 — this release is newer" without touching the device.
+
