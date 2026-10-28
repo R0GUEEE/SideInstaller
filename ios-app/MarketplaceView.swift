@@ -291,15 +291,15 @@ struct MarketplaceView: View {
                                         .foregroundStyle(Theme.accent2)
                                 }
                                 .buttonStyle(.plain)
-                                .disabled(app.latest?.url == nil || engine.isRunning)
+                                .disabled(app.latest?.link == nil || engine.isRunning)
 
                                 if app.versions.count > 1 {
                                     Menu {
-                                        ForEach(app.versions, id: \.version.id) { entry in
+                                        ForEach(app.versions) { version in
                                             Button {
-                                                install(app, version: entry.version)
+                                                install(app, version: version)
                                             } label: {
-                                                Text(versionLabel(entry.version))
+                                                Text(versionLabel(version))
                                             }
                                         }
                                     } label: {
@@ -317,10 +317,10 @@ struct MarketplaceView: View {
                                 } label: {
                                     Label(L("Install newest"), systemImage: "square.and.arrow.down")
                                 }
-                                ForEach(app.versions, id: \.version.id) { entry in
-                                    let title: String = L("Install %@", versionLabel(entry.version))
+                                ForEach(app.versions) { version in
+                                    let title: String = L("Install %@", versionLabel(version))
                                     Button {
-                                        install(app, version: entry.version)
+                                        install(app, version: version)
                                     } label: {
                                         Label(title, systemImage: "clock.arrow.circlepath")
                                     }
@@ -378,7 +378,7 @@ struct MarketplaceView: View {
                         .foregroundStyle(.secondary)
                     Button(L("Add a source")) { showAdd = true }
                         .buttonStyle(PrimaryButtonStyle())
-                } else if store.sources.allSatisfy({ $0.source == nil }) {
+                } else if store.sources.allSatisfy({ !$0.hasIndex }) {
                     Text(L("Loading…"))
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
@@ -481,6 +481,15 @@ struct MarketplaceView: View {
 
     /// Installs the chosen release of an app (or the newest) without opening its
     /// page first.
+    /// "1.2.3 · 3 Feb 2026", as the version menus show a release.
+    private func versionLabel(_ version: MarketEntry.Version) -> String {
+        var parts = [version.version ?? L("unknown")]
+        if let date = version.date {
+            parts.append(date.formatted(date: .abbreviated, time: .omitted))
+        }
+        return parts.joined(separator: " · ")
+    }
+
     private func install(_ app: MarketEntry, version: MarketEntry.Version? = nil) {
         guard let picked = app.release(version), let url = picked.link else { return }
         engine.installLinkedIPA(url)
@@ -665,7 +674,7 @@ private struct ListingRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            SourceIcon(url: app.icon, side: 44, fallback: "app.fill", corner: 10)
+            SourceIcon(url: app.iconURL, side: 44, fallback: "app.fill", corner: 10)
             VStack(alignment: .leading, spacing: 2) {
                 Text(app.name)
                     .font(.subheadline.weight(.semibold))
@@ -684,8 +693,8 @@ private struct ListingRow: View {
                     Text(L("%ld versions", app.versions.count))
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
-                } else if let size = app.latest?.sizeText {
-                    Text(size)
+                } else if let size = app.size, size > 0 {
+                    Text(ByteCountFormatter.string(fromByteCount: size, countStyle: .file))
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 }
@@ -700,7 +709,7 @@ private struct ListingRow: View {
 
     /// "Developer · Category", with whatever of the two the source gave.
     private var subtitle: String {
-        let category = app.category.title
+        let category = MarketCategory.of(app.category).title
         switch (app.developer?.isEmpty == false, category.isEmpty) {
         case (true, false):  return "\(app.developer!) · \(category)"
         case (true, true):   return app.developer!
