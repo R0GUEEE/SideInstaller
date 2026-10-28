@@ -10,7 +10,7 @@ import Foundation
 /// app's releases under `versions`, while v1 repeats the newest release as
 /// top-level `version` / `downloadURL` / `size`. Fields a source leaves out are
 /// simply absent, so every property here is optional except the name.
-struct AltSource: Decodable, Identifiable {
+struct AltSource: Decodable, Identifiable, Sendable {
 
     let name: String
     let identifier: String?
@@ -23,6 +23,11 @@ struct AltSource: Decodable, Identifiable {
     let featuredApps: [String]?
     let apps: [AltApp]
     let news: [AltNews]?
+
+    /// The apps that can be installed, sorted by name. Worked out once here
+    /// rather than per view pass: a big source lists hundreds of apps, and the
+    /// sort inside `body` was enough to stall the page.
+    let installableApps: [AltApp]
 
     /// Where it was fetched from; `SourceStore` fills this in.
     var sourceURL: URL?
@@ -48,15 +53,11 @@ struct AltSource: Decodable, Identifiable {
         news = try? container.decodeIfPresent([AltNews].self, forKey: .news)
         // A source whose apps can't be read is an error worth showing, so this
         // one isn't swallowed like the rest.
-        apps = (try? container.decodeIfPresent([AltApp].self, forKey: .apps)) .flatMap { $0 } ?? []
-    }
-
-    /// Apps worth listing: those with at least one downloadable release, sorted
-    /// by name.
-    var installableApps: [AltApp] {
-        apps.filter { !$0.releases.isEmpty }.sorted {
-            $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
-        }
+        let decoded = (try? container.decodeIfPresent([AltApp].self, forKey: .apps)) .flatMap { $0 } ?? []
+        apps = decoded
+        installableApps = decoded
+            .filter { !$0.releases.isEmpty }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
     /// The icon as a URL, when the source gave something usable.
@@ -64,7 +65,7 @@ struct AltSource: Decodable, Identifiable {
 }
 
 /// One app in a source.
-struct AltApp: Decodable, Identifiable {
+struct AltApp: Decodable, Identifiable, Sendable {
 
     let name: String
     let bundleIdentifier: String?
@@ -81,6 +82,12 @@ struct AltApp: Decodable, Identifiable {
     let version: String?
     let downloadURL: String?
     let size: Int64?
+
+    /// Every release that can actually be downloaded, newest first. Worked out
+    /// once at decode time: the list is read by list rows, the release picker
+    /// and the source's own filtering, and re-deriving it each time was most of
+    /// the cost of a big source.
+    let releases: [AltVersion]
 
     var id: String { (bundleIdentifier ?? name) + "@" + (iconURL ?? "") }
 
@@ -105,19 +112,16 @@ struct AltApp: Decodable, Identifiable {
         version = try? container.decodeIfPresent(String.self, forKey: .version)
         downloadURL = try? container.decodeIfPresent(String.self, forKey: .downloadURL)
         size = try? container.decodeIfPresent(Int64.self, forKey: .size)
-    }
 
-    /// Every release that can actually be downloaded, newest first. A v1 source
-    /// lists none under `versions`, so the top-level release stands in for it.
-    var releases: [AltVersion] {
-        var out = (versions ?? []).filter { $0.url != nil }
-        if out.isEmpty, let url = URL(string: downloadURL ?? ""),
-           url.scheme == "https" || url.scheme == "http" {
-            out = [AltVersion(version: version, buildVersion: nil, date: nil,
-                              localizedDescription: localizedDescription,
-                              downloadURL: downloadURL, size: size, minOSVersion: nil)]
+        // A v1 source lists no `versions`, so its top-level release stands in.
+        var found = (versions ?? []).filter { $0.url != nil }
+        if found.isEmpty, let link = downloadURL,
+           let url = URL(string: link), url.scheme?.hasPrefix("http") == true {
+            found = [AltVersion(version: version, buildVersion: nil, date: nil,
+                                localizedDescription: localizedDescription,
+                                downloadURL: link, size: size, minOSVersion: nil)]
         }
-        return Array(out.reversed())
+        releases = Array(found.reversed())
     }
 
     var latest: AltVersion? { releases.first }
@@ -131,7 +135,7 @@ struct AltApp: Decodable, Identifiable {
 }
 
 /// One release of an app in a source.
-struct AltVersion: Decodable, Identifiable, Equatable {
+struct AltVersion: Decodable, Identifiable, Equatable, Sendable {
 
     let version: String?
     let buildVersion: String?
@@ -177,7 +181,7 @@ struct AltVersion: Decodable, Identifiable, Equatable {
 }
 
 /// One news item in a source (v2), shown at the top of its page.
-struct AltNews: Decodable, Identifiable {
+struct AltNews: Decodable, Identifiable, Sendable {
     let title: String?
     let identifier: String?
     let caption: String?
@@ -232,18 +236,26 @@ final class SourceStore: ObservableObject {
     // MARK: Loading
 
     func load() {
+        guard sources.isEmpty else { return }
         let saved = defaults.stringArray(forKey: Self.defaultsKey) ?? []
         let links = saved.isEmpty ? Self.starterSources : saved
-        guard sources.isEmpty else { return }
-        sources = links.compactMap(URL.init(string:)).map { url in
-            var loaded = Loaded(url: url)
-            if let cached = Self.cachedSource(for: url) {
-                loaded.source = cached.source
-                loaded.fetched = cached.date
+        sources = links.compactMap(URL.init(string:)).map { Loaded(url: $0) }
+        Task {
+            // A cached source is megabytes of JSON: decoding it on the main
+            // actor froze the page it was meant to open instantly.
+            let urls = sources.map(\.url)
+            let cached = await Task.detached(priority: .userInitiated) {
+                urls.map { ($0, SourceStore.cachedSource(for: $0)) }
+            }.value
+            for (url, found) in cached {
+                guard let found, let index = sources.firstIndex(where: { $0.url == url }) else { continue }
+                // A fetch that landed while the caches decoded is fresher.
+                guard sources[index].source == nil else { continue }
+                sources[index].source = found.source
+                sources[index].fetched = found.date
             }
-            return loaded
+            await refreshAll(force: false)
         }
-        Task { await refreshAll(force: false) }
     }
 
     /// Fetches every source. `force` re-downloads one that already loaded.
@@ -346,7 +358,10 @@ final class SourceStore: ObservableObject {
             throw SourceError.status(http.statusCode)
         }
         guard data.count < 24 << 20 else { throw SourceError.tooLarge }
-        guard let source = decode(data) else { throw SourceError.notASource }
+        // Hundreds of apps in one document: decode it away from the main actor.
+        guard let source = await Task.detached(priority: .userInitiated,
+                                               operation: { SourceStore.decode(data) }).value
+        else { throw SourceError.notASource }
         guard !source.apps.isEmpty else { throw SourceError.noApps }
         var linked = source
         linked.sourceURL = url
@@ -400,13 +415,13 @@ final class SourceStore: ObservableObject {
         return cacheDirectory.appendingPathComponent(String(hash, radix: 16) + ".json")
     }
 
-    private static func cache(_ raw: Data, for url: URL) {
+    nonisolated private static func cache(_ raw: Data, for url: URL) {
         guard let data = try? JSONEncoder().encode(CachedSource(raw: raw, date: Date())) else { return }
         try? FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
         try? data.write(to: cacheFile(for: url), options: .atomic)
     }
 
-    private static func cachedSource(for url: URL) -> (source: AltSource, date: Date)? {
+    nonisolated private static func cachedSource(for url: URL) -> (source: AltSource, date: Date)? {
         guard let data = try? Data(contentsOf: cacheFile(for: url)),
               let cached = try? JSONDecoder().decode(CachedSource.self, from: data),
               let source = decode(cached.raw)

@@ -450,6 +450,10 @@ final class Engine: ObservableObject {
     /// A source a `sideinstaller://source` link brought, waiting for the
     /// Sources page to open its add sheet with it.
     @Published var sourceToAdd: URL?
+    /// Bumped when a newly imported .ipa replaces the one the Install screen
+    /// was set up for, so the page can drop its own state (the link field, an
+    /// open Advanced) and come back as a clean menu for the new app.
+    @Published private(set) var installMenuRevision = 0
     /// When SideStore was last asked for its pairing file, so the file it sends
     /// back can be told from one some other link brought.
     private var sideStorePairingRequestedAt: Date?
@@ -693,6 +697,9 @@ final class Engine: ObservableObject {
                 startDevicePreparation()
                 try await signInStep()
                 try await download()
+                // Rename, strip and inject before anything is signed or copied
+                // to the device: both take the patched build.
+                try await applyAppConfiguration()
                 // Signing registers App IDs, which a free Apple ID has few of,
                 // so an imported IPA waits for the go-ahead first.
                 if downloadedSource == .custom {
@@ -1718,6 +1725,7 @@ final class Engine: ObservableObject {
             if downloadedSource == .custom { downloadedIPAPath = nil }
             setGuide(nil)
             log("Imported \(dest.lastPathComponent) (\(ByteCountFormatter.string(fromByteCount: Int64(fileSize(dest.path)), countStyle: .file))).")
+            beginFreshInstallMenu()
         } catch IPALibrary.ImportError.notAnIPA {
             // The picker accepts any file. Validation runs on a staged copy, so
             // the previous import is kept.
@@ -1762,6 +1770,7 @@ final class Engine: ObservableObject {
             if downloadedSource == .custom { downloadedIPAPath = nil }
             setGuide(nil)
             log("Imported \(dest.lastPathComponent) (\(ByteCountFormatter.string(fromByteCount: Int64(fileSize(dest.path)), countStyle: .file))).")
+            beginFreshInstallMenu()
             return true
         } catch IPALibrary.ImportError.notAnIPA {
             refreshCustomIPA()
@@ -1832,6 +1841,26 @@ final class Engine: ObservableObject {
     @MainActor
     func refreshCustomIPA() {
         customIPAName = IPALibrary.customImport()?.url.lastPathComponent
+    }
+
+    /// A different .ipa has just been imported: put the Install screen back to
+    /// how it starts. The previous app's run state — its last error, its
+    /// finished card, its steps — belongs to that app, not this one, and the
+    /// menu should be looking at the build that's about to be installed.
+    @MainActor
+    private func beginFreshInstallMenu() {
+        installSource = .custom
+        // The download step adopts the new file rather than reusing the old
+        // path, which may not even exist any more.
+        downloadedIPAPath = nil
+        downloadedSource = nil
+        downloadedChannel = nil
+        downloadedVersion = nil
+        signedAppPath = nil
+        signedDisplayName = nil
+        resetRun()
+        installMenuRevision += 1
+        log("Install menu reset for the new .ipa.")
     }
 
     /// Log the way past a failed download: rename a stray IPA, or fetch one
@@ -2009,6 +2038,27 @@ final class Engine: ObservableObject {
                 throw EngineError.deviceRegistration(udid: udid, raw: msg)
             }
             throw EngineError.message(L("Signing failed: %@", msg))
+        }
+    }
+
+    /// Applies the App configuration to a custom `.ipa` in place, before it's
+    /// signed. Anything else — SideStore, LiveContainer, Madeira — is left
+    /// exactly as published.
+    @MainActor
+    private func applyAppConfiguration() async throws {
+        guard (downloadedSource ?? installSource) == .custom,
+              let path = downloadedIPAPath else { return }
+        let config = AppConfigStore.shared.config
+        guard config.isActive else { return }
+        log("=== Applying app configuration ===")
+        let url = URL(fileURLWithPath: path)
+        let outcome = try await Task.detached(priority: .userInitiated) {
+            try IPAPatch.apply(config, to: url)
+        }.value
+        for line in outcome.applied { log("  \(line)") }
+        for line in outcome.warnings { log("⚠️ \(line)") }
+        if outcome.applied.isEmpty, outcome.warnings.isEmpty {
+            log("  Nothing to change: this build already carries it.")
         }
     }
 

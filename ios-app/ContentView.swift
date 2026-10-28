@@ -8,9 +8,13 @@ struct ContentView: View {
     @EnvironmentObject private var updateChecker: UpdateChecker
     /// Observed so labels redraw when the language changes.
     @EnvironmentObject private var loc: Localizer
+    /// Watched so the Advanced row summarises what's currently configured.
+    @ObservedObject private var appConfig = AppConfigStore.shared
     @Environment(\.openURL) private var openURL
     @State private var showSettings = false
     @State private var showImporter = false
+    /// The App configuration sheet (identity, structure, tweaks).
+    @State private var showAppConfig = false
     /// True while the pairing-file picker is up.
     @State private var showPairingImporter = false
     /// When false, the Advanced section under the Install button shows only its
@@ -95,6 +99,15 @@ struct ContentView: View {
                 .animation(.smooth(duration: 0.35), value: engine.importedPairingName)
                 .animation(.smooth(duration: 0.35), value: advancedExpanded)
                 .animation(.smooth(duration: 0.35), value: showsAdvanced)
+                // A new import starts the page over: no stale link in the
+                // field, no Advanced left open from the last app.
+                .onChange(of: engine.installMenuRevision) { _, _ in
+                    ipaLink = ""
+                    advancedExpanded = false
+                    stepsExpanded = false
+                    confirmingCancel = false
+                    linkFieldFocused = false
+                }
             }
             .background(AppBackground())
             .toolbar { settingsToolbarItem(isPresented: $showSettings) }
@@ -106,6 +119,7 @@ struct ContentView: View {
                 }
                 .ignoresSafeArea()
             }
+            .sheet(isPresented: $showAppConfig) { AppConfigView() }
             .sheet(isPresented: $showPairingImporter) {
                 FileImporterRepresentableView(allowedContentTypes: UTType.pairingFileTypes) { urls in
                     guard let url = urls.first else { return }   // empty means cancelled
@@ -132,7 +146,7 @@ struct ContentView: View {
     /// custom IPA), or the optional pairing file (iOS 27 and above). A run
     /// can't take a change to either, so it's away while one goes.
     private var showsAdvanced: Bool {
-        !engine.isRunning && (engine.installSource != .custom || engine.canSelfPair)
+        !engine.isRunning
     }
 
     /// Cascade index for items below the pairing-file card, shifted by one when
@@ -681,6 +695,9 @@ struct ContentView: View {
                     if engine.installSource != .custom {
                         versionOption
                     }
+                    if engine.installSource == .custom {
+                        appConfigOption
+                    }
                     if engine.canSelfPair {
                         pairingFileOption
                     }
@@ -691,6 +708,42 @@ struct ContentView: View {
         // No card behind it; inset to line up with the card contents above.
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 18)
+    }
+
+    /// What to change about the imported .ipa: its identity, its extensions,
+    /// and the tweaks loaded into it.
+    private var appConfigOption: some View {
+        let summary = appConfig.config.summary
+        return VStack(alignment: .leading, spacing: 10) {
+            Label(L("App configuration"), systemImage: "slider.horizontal.3")
+                .font(.subheadline.weight(.semibold))
+            Button {
+                showAppConfig = true
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: summary.isEmpty ? "square.dashed" : "checkmark.seal.fill")
+                        .foregroundStyle(summary.isEmpty ? Color.secondary : Theme.accent2)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(summary.isEmpty ? L("Nothing changed") : L("%d changes", summary.count))
+                            .font(.subheadline)
+                            .foregroundStyle(.primary)
+                        Text(summary.isEmpty
+                             ? L("Rename it, drop extensions, or inject tweaks before signing.")
+                             : summary.joined(separator: " · "))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
+                    Spacer(minLength: 4)
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                }
+                .fieldBackground()
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
     }
 
     /// Which release of the selected build to install. The list follows the
