@@ -627,6 +627,8 @@ struct AppsView: View {
     /// Observed for `installProgress` during a refresh.
     @EnvironmentObject private var engine: Engine
     @ObservedObject var manager: SideloadedAppsManager
+    /// The debugger-backed JIT session, shown in its own card.
+    @ObservedObject private var jit = JITSession.shared
 
     @State private var showSettings = false
     /// Shows the "Refresh all" confirmation alert.
@@ -638,6 +640,7 @@ struct AppsView: View {
                 header.cascadeItem(0)
                 refreshAllButton
                 loadButton
+                jitCard
                 refreshRunCard
                 // Errors show as a popup, which `RootView` lays over the app.
                 appList
@@ -913,6 +916,48 @@ struct AppsView: View {
         }
     }
 
+    /// The live JIT session, with the way out of it.
+    @ViewBuilder
+    private var jitCard: some View {
+        if case .idle = jit.state {
+            EmptyView()
+        } else {
+            CalloutCard(tint: .orange) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label(L("JIT session"), systemImage: "bolt.fill")
+                        .font(.subheadline.weight(.semibold))
+                    Text(jitText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if jit.isActive {
+                        Button(L("Stop")) {
+                            Task { await jit.stop() }
+                        }
+                        .font(.footnote.weight(.semibold))
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
+                }
+            }
+        }
+    }
+
+    private var jitText: String {
+        switch jit.state {
+        case .idle:
+            return ""
+        case .launching:
+            return L("Launching suspended…")
+        case .attaching:
+            return L("Attaching the debugger…")
+        case .running(let pid):
+            return L("Debugger attached (pid %u). JIT stays on while this session is open — keep SideInstaller running.", pid)
+        case .failed(let message):
+            return message
+        }
+    }
+
     /// The actions an installed app offers, laid out like SideStore's: launch it,
     /// restart its seven days, re-sign it under this Apple ID whatever signed it
     /// before, reinstall it, look at its profile, or remove it.
@@ -922,6 +967,22 @@ struct AppsView: View {
             launch(status)
         } label: {
             Label(L("Open"), systemImage: "arrow.up.forward.app")
+        }
+
+        // JIT via the debugger: the app is launched suspended, attached to and
+        // resumed, and the session holds the permission until it's stopped.
+        if jit.isActive, jit.bundleID == status.app.bundleID {
+            Button {
+                Task { await jit.stop() }
+            } label: {
+                Label(L("Stop JIT session"), systemImage: "bolt.slash.fill")
+            }
+        } else {
+            Button {
+                Task { await jit.enable(bundleID: status.app.bundleID, name: status.app.name) }
+            } label: {
+                Label(L("Launch with JIT"), systemImage: "bolt.fill")
+            }
         }
 
         Divider()
@@ -1125,6 +1186,7 @@ struct AppInfoSheet: View {
     @EnvironmentObject private var engine: Engine
     let status: SideloadedAppStatus
     @ObservedObject var manager: SideloadedAppsManager
+    @ObservedObject private var jit = JITSession.shared
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -1223,20 +1285,47 @@ struct AppInfoSheet: View {
         }
     }
 
-    /// JIT isn't something an installer can toggle: the process has to be
-    /// started under a debugger and have its memory pages made executable, which
-    /// means a debugserver session on the device. This build ships no debugger
-    /// client, so the row says so rather than offering a switch that does
-    /// nothing.
+    /// JIT, through the debugger: the app is launched suspended, attached to,
+    /// and resumed with the session held open.
     private var jitCard: some View {
         PanelCard {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 10) {
                 Label(L("JIT"), systemImage: "bolt.fill")
                     .font(.subheadline.weight(.semibold))
-                Text(L("Enabling JIT for an app means launching it under a debugger and leaving its memory writable — a debugserver session over the developer disk image. This build has no debugger client, so JIT can't be turned on from here yet. Apps that need it (emulators, some interpreters) run interpreted until then."))
+                Text(L("Launches the app under the device's debugger, which is how iOS allows it to map executable memory. The session has to stay open: closing it, or leaving SideInstaller, turns JIT off for the app."))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                if jit.isActive, jit.bundleID == status.app.bundleID {
+                    Button(role: .destructive) {
+                        Task { await jit.stop() }
+                    } label: {
+                        Label(L("Stop JIT session"), systemImage: "bolt.slash.fill")
+                            .font(.footnote.weight(.semibold))
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                } else {
+                    Button {
+                        Task { await jit.enable(bundleID: status.app.bundleID, name: status.app.name) }
+                    } label: {
+                        Label(L("Launch with JIT"), systemImage: "bolt.fill")
+                            .font(.footnote.weight(.semibold))
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(jit.isActive)
+                }
+                if !jit.transcript.isEmpty {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(Array(jit.transcript.suffix(6).enumerated()), id: \.offset) { _, line in
+                            Text(line)
+                                .font(.caption2.monospaced())
+                                .foregroundStyle(.tertiary)
+                                .lineLimit(2)
+                        }
+                    }
+                }
             }
         }
     }

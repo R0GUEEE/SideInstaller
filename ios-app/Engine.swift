@@ -3890,8 +3890,16 @@ final class Engine: ObservableObject {
         (error as? LocalizedError)?.errorDescription ?? String(describing: error)
     }
 
-    /// Bridge a blocking deviceQueue body to async.
-    private func onDeviceQueue<T>(_ work: @escaping () throws -> T) async throws -> T {
+    /// Opens the device link if it isn't open, for the JIT session, which runs
+    /// outside the install pipeline.
+    @MainActor
+    func prepareDeviceLink() async throws {
+        try await ensurePairingConnection()
+    }
+
+    /// Bridge a blocking deviceQueue body to async, for a caller outside this
+    /// class (the JIT session) that has to share the one device link.
+    func onDeviceQueue<T>(_ work: @escaping () throws -> T) async throws -> T {
         try await withCheckedThrowingContinuation { cont in
             deviceQueue.async {
                 do { cont.resume(returning: try work()) }
@@ -3899,6 +3907,7 @@ final class Engine: ObservableObject {
             }
         }
     }
+
 
     /// Bridge a blocking signQueue body to async.
     private func onSignQueue<T>(_ work: @escaping () throws -> T) async throws -> T {

@@ -812,6 +812,143 @@ final class DeviceConnection {
         return response?.pointee.pid ?? 0
     }
 
+    // MARK: - Debugging (JIT)
+
+    /// Launches an installed app suspended and returns the DVT handle that can
+    /// kill it again, or `nil` when the device launched it without one.
+    ///
+    /// Process control is how Xcode starts a process it means to debug; the
+    /// process is stopped at its entry point, which is where a debugger attaches.
+    func launchDebugProcess(bundleID: String,
+                            environment: [String: String] = [:]) throws -> DebugLaunch {
+        guard let adapter, let handshake else { throw fail("not connected") }
+        var server: OpaquePointer?
+        try check(remote_server_connect_rsd(adapter, handshake, &server),
+                  "remote_server_connect_rsd failed")
+        guard let server else { throw fail("remote server was null") }
+        defer { remote_server_free(server) }
+
+        var control: OpaquePointer?
+        try check(process_control_new(server, &control), "process_control_new failed")
+        guard let control else { throw fail("process control was null") }
+        defer { process_control_free(control) }
+
+        let variables = (environment.map { "\($0.key)=\($0.value)" } + ["\0"]).map { $0 }
+        let pointers = variables.compactMap { $0 == "\0" ? nil : strdup($0) }
+        defer { pointers.forEach { free($0) } }
+        var buffer = pointers + [nil]
+
+        var pid: UInt64 = 0
+        let error = buffer.withUnsafeMutableBufferPointer { buffer -> UnsafeMutablePointer<IdeviceFfiError>? in
+            bundleID.withCString { name in
+                process_control_launch_app(control, name, buffer.baseAddress, UInt(pointers.count),
+                                           nil, 0, true, true, &pid)
+            }
+        }
+        try check(error, "process_control_launch_app failed")
+        return DebugLaunch(pid: pid)
+    }
+
+    /// Ends a process started by `launchDebugProcess`.
+    func killDebugProcess(pid: UInt64) throws {
+        guard let adapter, let handshake else { throw fail("not connected") }
+        var server: OpaquePointer?
+        try check(remote_server_connect_rsd(adapter, handshake, &server),
+                  "remote_server_connect_rsd failed")
+        guard let server else { throw fail("remote server was null") }
+        defer { remote_server_free(server) }
+        var control: OpaquePointer?
+        try check(process_control_new(server, &control), "process_control_new failed")
+        guard let control else { throw fail("process control was null") }
+        defer { process_control_free(control) }
+        try check(process_control_kill_app(control, pid), "process_control_kill_app failed")
+    }
+
+    /// A process stopped at its entry point, waiting for a debugger.
+    struct DebugLaunch {
+        let pid: UInt64
+    }
+
+    /// A failure the JIT session can describe to the user.
+    struct DebugError: LocalizedError {
+        let message: String
+        var errorDescription: String? { message }
+    }
+
+    /// Whether an app has a live process. Uses `app_service`'s process list,
+    /// which needs no debugger and so can check a running app without stopping it.
+    func isProcessRunning(bundleID: String) throws -> Bool {
+        guard let adapter, let handshake else { throw fail("not connected") }
+        var client: OpaquePointer?
+        try check(app_service_connect_rsd(adapter, handshake, &client),
+                  "app_service_connect_rsd failed")
+        guard let client else { throw fail("app_service client was null") }
+        defer { app_service_free(client) }
+
+        var processes: UnsafeMutablePointer<ProcessTokenC>?
+        var count: UInt = 0
+        try check(app_service_list_processes(client, &processes, &count),
+                  "app_service_list_processes failed")
+        guard let processes else { return false }
+        // Copied out before the list is freed: the entry points into it.
+        var running = false
+        for index in 0..<Int(count) where !running {
+            if let path = processes[index].executable_url {
+                // The executable's path carries the bundle's own name.
+                running = String(cString: path).contains("/\(bundleID)/")
+            }
+        }
+        app_service_free_process_list(processes, count)
+        return running
+    }
+
+    /// Opens the device's debugger server connection: what a debugger speaks
+    /// GDB-remote to. The handle is kept for the life of the session.
+    func debugProxy() throws -> OpaquePointer {
+        guard let adapter, let handshake else { throw fail("not connected") }
+        var proxy: OpaquePointer?
+        try check(debug_proxy_connect_rsd(adapter, handshake, &proxy),
+                  "debug_proxy_connect_rsd failed")
+        guard let proxy else { throw fail("debug proxy was null") }
+        return proxy
+    }
+
+    /// Sends one GDB-remote packet: `m<hex string>` to read memory, and so on.
+    func sendDebugPacket(_ proxy: OpaquePointer, _ packet: String) throws -> String {
+        // The packet goes in as the command name; the proxy hex-encodes only the
+        // separate argv, so anything with arguments is built up by the caller.
+        let parts = packet.split(separator: ";", maxSplits: 1, omittingEmptySubsequences: false)
+        let name = String(parts.first ?? "")
+        let arguments = parts.count > 1 ? [String(parts[1])] : []
+        return try sendDebugCommand(proxy, name, arguments: arguments)
+    }
+
+    /// Sends one command name with optional arguments, the way the proxy's own
+    /// `send_command` does: the name verbatim, each argument hex-encoded.
+    func sendDebugCommand(_ proxy: OpaquePointer, _ name: String,
+                          arguments: [String] = []) throws -> String {
+        let pointers = arguments.compactMap { strdup($0) }
+        defer { pointers.forEach { free($0) } }
+        var buffer = pointers + [nil]
+        let command: OpaquePointer? = buffer.withUnsafeMutableBufferPointer { buffer in
+            name.withCString { namePointer in
+                debugserver_command_new(namePointer, buffer.baseAddress, UInt(pointers.count))
+            }
+        }
+        guard let command else { throw fail("couldn't build the \(name) command") }
+        defer { debugserver_command_free(command) }
+        var response: UnsafeMutablePointer<CChar>?
+        let error = debug_proxy_send_command(proxy, command, &response)
+        try check(error, "\(name) failed")
+        guard let response else { return "" }
+        defer { si_string_free(response) }
+        return String(cString: response)
+    }
+
+    func closeDebugProxy(_ proxy: OpaquePointer) {
+        debug_proxy_free(proxy)
+    }
+
     /// Removes an installed app from the device.
     ///
     /// `installation_proxy` does this over the same RSD link as the install, so
