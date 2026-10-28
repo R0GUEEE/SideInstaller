@@ -5,6 +5,20 @@ All notable changes to SideInstaller are documented here.
 ## Unreleased
 
 ### Added
+- **A Telegram studio** (Sources › Telegram channels): pick the channels to watch, set how far back to
+  scan (each preview page is about twenty posts), scan them, and turn the result into an
+  AltStore-format source at `Documents/Telegram/telegram-source.json` — loadable by the app through
+  a `file://` URL, or copyable as JSON to host anywhere for SideStore or AltStore.
+- **Deep channel scans.** The preview paginates with `?before=<oldest id>`, so a channel is read
+  several pages back instead of only its twenty most recent posts.
+
+### Note
+- **No Telegram login.** Reading a channel as your account needs an MTProto session — an api_id and
+  api_hash, a phone login with its code and 2FA, and a session key on the device. The studio says so
+  on its account card rather than offering a button that can't work; what ships reads public
+  previews, which is what the scan and the generated source are built on.
+
+### Added
 - **Telegram channels, the ones you asked for.** `ipaomtk` is listed with its app write-ups; `ipahub`
   with its attachments; `binnichtaktivsipas`, `blatants` and `iOS_Randy420` say plainly that their
   previews are off and offer **Open in Telegram** (`t.me/c/…` links are private and refused with a

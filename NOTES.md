@@ -1491,3 +1491,22 @@ Measured against the live previews:
 - The preview check is a redirect test: after following redirects, a URL that isn't under `/s/`
   means the channel has no preview, which is a different failure from "no .ipa in it".
 
+### The Telegram studio, and why there's no login
+
+- **What shipped**: channel selection with per-channel scan depth, a scan that walks `?before=`
+  pages, results per channel with their errors, and an AltStore-format document generated from the
+  lot — written to `Documents/Telegram/telegram-source.json`. `SourceStore.sourceURL` learned
+  `file://`, so the app loads its own generated source like any other (the same JSON can be hosted
+  and given to SideStore/AltStore, which is the "live URL" part).
+- **What didn't, and why**: signing in. A Telegram account is an MTProto session: `api_id`/`api_hash`
+  registered at my.telegram.org, a phone login (code via other devices or SMS, 2FA password where
+  set), a session key that is itself a credential as sensitive as an Apple ID, and a file-download
+  path that only such a session can provide. That's a separate subsystem — a Rust MTProto client
+  (grammers) behind the existing FFI, Keychain-stored session, login UI with 2FA, file downloads —
+  and it can't be validated from CI. Rather than a dead "Sign in" button, the account card lists
+  exactly what it would take.
+- **Consequence for the generated source**: Telegram mints file URLs per session, so the generated
+  entries carry the post permalink (or the channel's own page link) as `downloadURL`. The app reads
+  them back, and tapping one opens it. A channel that links a direct `.ipa` in its post text
+  generates a real download URL, and those install normally.
+
