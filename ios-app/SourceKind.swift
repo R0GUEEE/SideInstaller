@@ -13,6 +13,8 @@ enum SourceKind: String, CaseIterable, Identifiable, Codable, Sendable {
     case altSource
     /// A GitHub repository whose releases carry `.ipa` assets.
     case github
+    /// A public Telegram channel whose posts carry `.ipa` documents.
+    case telegram
 
     var id: String { rawValue }
 
@@ -20,6 +22,7 @@ enum SourceKind: String, CaseIterable, Identifiable, Codable, Sendable {
         switch self {
         case .altSource: return L("AltStore source")
         case .github:    return L("GitHub releases")
+        case .telegram:  return L("Telegram channel")
         }
     }
 
@@ -64,7 +67,7 @@ enum SourceKind: String, CaseIterable, Identifiable, Codable, Sendable {
             case .eSign:     return ["esign.yyyue.xyz", "esign.flycoding.cn"]
             case .feather:   return ["feather.ioshaven.com"]
             case .scarlet:   return ["scarlet.ioshaven.com"]
-            case .esignHub:  return ["esignhub.dev"]
+            case .esignHub:  return ["esignhub.dev", "t.me", "telegram.me"]
             case .other:     return []
             }
         }
@@ -103,7 +106,16 @@ struct SourceOrigin: Codable, Sendable, Equatable {
         if isGitHubReleaseFeed(host) {
             return SourceOrigin(kind: .github, store: SourceKind.Store.other.rawValue)
         }
+        if isTelegramChannel(host) {
+            return SourceOrigin(kind: .telegram, store: SourceKind.Store.esignHub.rawValue)
+        }
         return SourceOrigin(kind: .altSource, store: store.rawValue)
+    }
+
+    /// A `t.me/<channel>` or `t.me/s/<channel>` link.
+    static func isTelegramChannel(_ host: String?) -> Bool {
+        guard let host = host?.lowercased() else { return false }
+        return host == "t.me" || host == "telegram.me" || host == "www.t.me"
     }
 
     /// `github.com/<owner>/<repo>` — a repository, not a file in one.

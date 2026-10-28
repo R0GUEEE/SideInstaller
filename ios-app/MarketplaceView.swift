@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// A category an app can be filed under, in the vocabulary AltStore sources
 /// use, with the name and symbol an App Store-style grid wants.
@@ -351,7 +352,8 @@ struct MarketplaceView: View {
                                 Button {
                                     install(app)
                                 } label: {
-                                    Image(systemName: "arrow.down.circle.fill")
+                                    Image(systemName: app.latest?.direct == false
+                                          ? "arrow.up.forward.app" : "arrow.down.circle.fill")
                                         .font(.title3)
                                         .foregroundStyle(Theme.accent2)
                                 }
@@ -519,6 +521,7 @@ struct MarketplaceView: View {
         if let date = version.date {
             parts.append(date.formatted(date: .abbreviated, time: .omitted))
         }
+        if !version.direct { parts.append(L("in Telegram")) }
         return parts.joined(separator: " · ")
     }
 
@@ -658,17 +661,27 @@ struct MergerAppView: View {
         PanelCard {
             VStack(spacing: 12) {
                 Button {
-                    if let url = picked?.link { engine.installLinkedIPA(url) }
+                    guard let picked, let url = picked.link else { return }
+                    if picked.direct {
+                        engine.installLinkedIPA(url)
+                    } else {
+                        UIApplication.shared.open(url)
+                    }
                 } label: {
-                    Label(L("Install %@", picked?.version ?? L("newest")),
-                          systemImage: "square.and.arrow.down")
+                    Label(picked?.direct == false
+                          ? L("Open in Telegram")
+                          : L("Install %@", picked?.version ?? L("newest")),
+                          systemImage: picked?.direct == false
+                          ? "arrow.up.forward.app" : "square.and.arrow.down")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(PrimaryButtonStyle())
                 .disabled(picked?.link == nil || picked?.needsNewerOS == true
                           || engine.isRunning || engine.isImportingIPA)
 
-                Text(L("Downloads the .ipa, signs it with your Apple ID and installs it — the same run as any other build."))
+                Text(picked?.direct == false
+                     ? L("Telegram keeps its files behind the app — this opens the post there to download. Bring the .ipa back here, or use a source that links the file directly.")
+                     : L("Downloads the .ipa, signs it with your Apple ID and installs it — the same run as any other build."))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)

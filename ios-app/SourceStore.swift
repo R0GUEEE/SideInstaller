@@ -119,6 +119,14 @@ final class SourceStore: ObservableObject {
                 store(SourceIndex(name: name, icon: "https://github.com/\(parts.owner).png?size=120",
                                   format: "GitHub", date: Date(), etag: nil, featured: [],
                                   entries: entries), for: id)
+            } else if origin.kind == .telegram {
+                guard let channel = TelegramSource.channel(from: url) else {
+                    throw SourceError.notASource
+                }
+                let read = try await TelegramSource.entries(channel: channel)
+                store(SourceIndex(name: read.name, icon: nil, format: "Telegram",
+                                  date: Date(), etag: nil, featured: [],
+                                  entries: read.entries), for: id)
             } else {
                 let cached = Self.cachedIndex(for: url)
                 let raw = try await Self.fetchDocument(url, etag: cached?.etag)
@@ -240,6 +248,16 @@ final class SourceStore: ObservableObject {
                                         icon: "https://github.com/\(parts.owner).png?size=120",
                                         format: "GitHub", date: Date(), etag: nil, featured: [],
                                         entries: entries)
+                sources.append(loaded)
+                store(index, for: loaded.id)
+            case .telegram:
+                guard let channel = TelegramSource.channel(from: url) else {
+                    return L("That isn't a Telegram channel link. It should look like t.me/channel.")
+                }
+                let read = try await TelegramSource.entries(channel: channel)
+                let index = SourceIndex(name: read.name, icon: nil, format: "Telegram",
+                                        date: Date(), etag: nil, featured: [],
+                                        entries: read.entries)
                 sources.append(loaded)
                 store(index, for: loaded.id)
             case .altSource:

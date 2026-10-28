@@ -21,6 +21,10 @@ struct MarketEntry: Identifiable, Sendable, Codable {
         /// filter by source.
         let sourceID: String
         let sourceName: String
+        /// False for a release whose link is a page — a Telegram post, say —
+        /// rather than the file itself. Those open in their app instead of
+        /// downloading here.
+        var direct: Bool = true
 
         var link: URL? { URL(string: url) }
 
