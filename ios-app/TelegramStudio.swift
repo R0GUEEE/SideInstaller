@@ -26,7 +26,10 @@ final class TelegramStudio: ObservableObject {
         var handle: String
         var title: String
         var enabled = true
-        /// How many preview pages to walk. Each is about twenty posts.
+        /// Walk every page the channel has, not just the recent ones.
+        var allPages = true
+        /// How many pages to walk when `allPages` is off. Each is about twenty
+        /// posts.
         var pages = 3
 
         var id: String { handle.lowercased() }
@@ -104,9 +107,20 @@ final class TelegramStudio: ObservableObject {
 
     func setPages(_ pages: Int, for id: String) {
         guard let index = channels.firstIndex(where: { $0.id == id }) else { return }
-        channels[index].pages = min(max(pages, 1), 20)
+        channels[index].pages = min(max(pages, 1), 40)
         save()
     }
+
+    func setAllPages(_ all: Bool, for id: String) {
+        guard let index = channels.firstIndex(where: { $0.id == id }) else { return }
+        channels[index].allPages = all
+        save()
+    }
+
+    /// With "every page" on, this is the walk's backstop: forty preview pages is
+    /// about eight hundred posts, and the reader stops earlier when a page
+    /// brings nothing new.
+    static let allPageLimit = 40
 
     // MARK: - The directory
 
@@ -164,6 +178,8 @@ final class TelegramStudio: ObservableObject {
     /// Reads every enabled channel, several pages deep, and keeps what it finds.
     func scan() async {
         guard !isScanning else { return }
+        // Every channel, enabled or not, is left to the user's switches; the
+        // scan reads all of them so a channel never silently drops out.
         let wanted = channels.filter(\.enabled)
         guard !wanted.isEmpty else {
             scanNote = L("No channels are enabled.")
@@ -176,7 +192,7 @@ final class TelegramStudio: ObservableObject {
         for channel in wanted {
             do {
                 let read = try await TelegramSource.entries(channel: channel.handle,
-                                                            pages: channel.pages)
+                                                            pages: channel.allPages ? Self.allPageLimit : channel.pages)
                 if let index = channels.firstIndex(where: { $0.id == channel.id }),
                    channels[index].title != read.name {
                     channels[index].title = read.name

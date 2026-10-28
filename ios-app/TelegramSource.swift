@@ -110,6 +110,9 @@ enum TelegramSource {
 
         let title = firstMatch(#"<meta property="og:title" content="([^"]+)""#, in: html)
             ?? "@\(channel)"
+        // The channel's own picture, so its rows aren't anonymous.
+        let channelIcon = firstMatch(#"<meta property="og:image" content="([^"]+)""#, in: html)
+            ?? "\(TelegramBridge.host)/icon/\(channel)/icon.jpg"
 
         var collected = posts(in: html)
         if pages > 1 {
@@ -171,7 +174,7 @@ enum TelegramSource {
                                            name: name,
                                            developer: "@\(channel)",
                                            subtitle: post.text?.split(separator: "\n").first.map(String.init),
-                                           icon: nil,
+                                           icon: channelIcon,
                                            category: "Telegram",
                                            versions: versions))
             }

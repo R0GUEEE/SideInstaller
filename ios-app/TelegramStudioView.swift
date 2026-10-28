@@ -275,12 +275,21 @@ struct TelegramStudioView: View {
                             }
                             .buttonStyle(.borderless)
                         }
-                        Stepper(value: Binding(get: { channel.pages },
-                                               set: { studio.setPages($0, for: channel.id) }),
-                                in: 1...20) {
-                            Text(L("Scan %ld page(s) · ~%ld posts", channel.pages, channel.pages * 20))
+                        Toggle(isOn: Binding(get: { channel.allPages },
+                                             set: { studio.setAllPages($0, for: channel.id) })) {
+                            Text(L("Scan every page"))
                                 .font(.caption2)
-                                .foregroundStyle(.secondary)
+                        }
+                        .toggleStyle(.switch)
+                        .controlSize(.mini)
+                        if !channel.allPages {
+                            Stepper(value: Binding(get: { channel.pages },
+                                                   set: { studio.setPages($0, for: channel.id) }),
+                                    in: 1...40) {
+                                Text(L("%ld page(s) · ~%ld posts", channel.pages, channel.pages * 20))
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                     }
                     .padding(.vertical, 4)
@@ -314,6 +323,8 @@ struct TelegramStudioView: View {
                 }
                 ForEach(studio.results) { result in
                     HStack(alignment: .top, spacing: 8) {
+                        SourceIcon(url: result.entries.first?.iconURL,
+                                   side: 26, fallback: "paperplane.fill", corner: 7)
                         Text("@\(result.channel)")
                             .font(.caption.monospaced())
                         Spacer(minLength: 4)

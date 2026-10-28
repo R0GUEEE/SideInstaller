@@ -28,8 +28,11 @@ enum TelegramBridge {
     }
 
     /// The channel's feed, as entries. Throws when the bridge has nothing.
-    static func entries(channel: String) async throws -> (name: String, entries: [MarketEntry]) {
-        guard let url = URL(string: "\(host)/rss/\(channel)") else {
+    static func entries(channel: String, limit: Int = 100)
+        async throws -> (name: String, entries: [MarketEntry]) {
+        // The feed takes `?limit=`, and answers with far more than its default
+        // ten when asked — 49 items for a limit of 50 was measured.
+        guard let url = URL(string: "\(host)/rss/\(channel)?limit=\(max(10, limit))") else {
             throw Failure(message: L("That channel name can't be part of a URL."))
         }
         var request = URLRequest(url: url)
@@ -48,6 +51,9 @@ enum TelegramBridge {
         }
         let title = firstMatch(#"<channel>\s*<title>(?:<!\[CDATA\[)?([^<\]]*)"#, in: xml)
             .map(decodeEntities) ?? "@\(channel)"
+        // The channel's own picture, used for any app without a preview image.
+        let channelIcon = firstMatch(#"<image>\s*<url>([^<]+)"#, in: xml)
+            .map(decodeEntities) ?? "\(host)/icon/\(channel)/icon.jpg"
 
         var entries: [MarketEntry] = []
         var seen = Set<String>()
@@ -64,13 +70,18 @@ enum TelegramBridge {
             let fileName = link.lastPathComponent.removingPercentEncoding ?? link.lastPathComponent
             guard seen.insert(fileName.lowercased()).inserted else { continue }
 
+            // Each item carries its own preview image beside the file. That's
+            // the closest thing to an app icon Telegram publishes.
+            let thumb = item.range(of: #"media/[^"]*/preview/[^"&\s]+"#, options: .regularExpression)
+                .map { String(item[$0]) }
+                .map { "\(host)/\($0)" }
             let name = itemTitle ?? String(fileName.dropLast(4))
             let version = versionNumber(in: fileName) ?? versionNumber(in: name)
             entries.append(MarketEntry(id: "tg-bridge:\(channel):\(name.lowercased())",
                                        name: name,
                                        developer: "@\(channel)",
                                        subtitle: nil,
-                                       icon: nil,
+                                       icon: thumb ?? channelIcon,
                                        category: "Telegram",
                                        versions: [.init(id: link.absoluteString,
                                                         version: version,
