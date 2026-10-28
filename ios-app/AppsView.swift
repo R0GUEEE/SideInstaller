@@ -107,8 +107,11 @@ struct ProvisioningProfile: Identifiable, @unchecked Sendable, Equatable {
 }
 
 /// One app installation_proxy reported, kept only when it was installed with a
-/// provisioning profile — i.e. sideloaded rather than from the App Store.
+/// provisioning profile — sideloaded, or a TestFlight build.
 struct SideloadedApp: Identifiable, Equatable, @unchecked Sendable {
+
+    /// Sideloaded or TestFlight; App Store apps aren't listed.
+    let kind: Kind
 
     let bundleID: String
     let name: String
@@ -119,11 +122,51 @@ struct SideloadedApp: Identifiable, Equatable, @unchecked Sendable {
 
     var id: String { bundleID }
 
-    /// Returns nil unless `ProfileValidated` is set. installd sets it only for
-    /// apps installed with a provisioning profile, not App Store apps.
-    init?(plist: [String: Any]) {
-        guard plist["ProfileValidated"] != nil,
-              let bundleID = plist["CFBundleIdentifier"] as? String else { return nil }
+    /// How an app got onto the device, from what `installation_proxy` reports.
+    enum Kind: String, CaseIterable, Sendable {
+        /// Signed with a provisioning profile and installed by something like
+        /// SideInstaller, AltStore or Xcode.
+        case sideloaded
+        /// A TestFlight build. It carries a beta-reports-active entitlement the
+        /// profile grants, which a sideloaded app never has.
+        case testFlight
+        /// Installed from the App Store (or shipped with iOS).
+        case appStore
+
+        var title: String {
+            switch self {
+            case .sideloaded: return L("Sideloaded")
+            case .testFlight: return L("TestFlight")
+            case .appStore:   return L("App Store")
+            }
+        }
+
+        /// The label each row shows under the app's name.
+        var rowSubtitle: String {
+            switch self {
+            case .sideloaded: return L("Sideloaded")
+            case .testFlight: return L("TestFlight")
+            case .appStore:   return L("App Store")
+            }
+        }
+    }
+
+    /// The app's kind. A TestFlight build is the one case that needs looking at
+    /// entitlements: `beta-reports-active` comes from testers' profiles.
+    static func kind(of plist: [String: Any]) -> Kind {
+        let entitlements = plist["Entitlements"] as? [String: Any]
+        if entitlements?["beta-reports-active"] != nil { return .testFlight }
+        return plist["ProfileValidated"] != nil ? .sideloaded : .appStore
+    }
+
+    /// Every app of a kind the page lists, or nil for one it doesn't.
+    /// `ProfileValidated` is what marks an app as installed with a profile —
+    /// sideloaded or TestFlight, not App Store.
+    init?(plist: [String: Any], kinds: Set<Kind> = [.sideloaded, .testFlight]) {
+        guard let bundleID = plist["CFBundleIdentifier"] as? String else { return nil }
+        let kind = SideloadedApp.kind(of: plist)
+        guard kinds.contains(kind) else { return nil }
+        self.kind = kind
         self.bundleID = bundleID
         let display = plist["CFBundleDisplayName"] as? String
         let bundleName = plist["CFBundleName"] as? String
@@ -349,6 +392,8 @@ final class SideloadedAppsManager: ObservableObject {
     @Published private(set) var refreshable: [RefreshJob] = []
     /// The refreshable jobs by bundle ID, so a row doesn't scan the list.
     @Published private(set) var jobsByBundle: [String: RefreshJob] = [:]
+    /// How many installed apps of each kind the device reports.
+    @Published private(set) var kindCounts: [SideloadedApp.Kind: Int] = [:]
     /// Installed apps' icons, by bundle ID. Read from the device once and kept
     /// on disk, so the list doesn't re-fetch them on every launch.
     @Published private(set) var icons: [String: UIImage] = [:]
@@ -420,6 +465,7 @@ final class SideloadedAppsManager: ObservableObject {
             }.value
             entries = result.matched.entries
             unmatched = result.matched.unmatched
+            kindCounts = result.counts
             hasLoaded = true
             lastRefreshed = cached.date
             await rebuildRefreshable()
@@ -433,12 +479,17 @@ final class SideloadedAppsManager: ObservableObject {
     struct Parsed {
         let apps: [SideloadedApp]
         let matched: (entries: [SideloadedAppStatus], unmatched: [ProvisioningProfile])
+        /// How many of each kind the device has, for the section headers.
+        let counts: [SideloadedApp.Kind: Int]
     }
 
     nonisolated static func parse(_ appPlists: [[String: Any]], _ profileBlobs: [Data]) -> Parsed {
         let apps = appPlists.compactMap(SideloadedApp.init(plist:))
         let profiles = profileBlobs.compactMap(ProvisioningProfile.init(data:))
-        return Parsed(apps: apps, matched: ProfileMatcher.match(apps: apps, profiles: profiles))
+        var counts: [SideloadedApp.Kind: Int] = [:]
+        for app in apps { counts[app.kind, default: 0] += 1 }
+        return Parsed(apps: apps, matched: ProfileMatcher.match(apps: apps, profiles: profiles),
+                      counts: counts)
     }
 
     private static func since(_ date: Date) -> String {
@@ -464,6 +515,7 @@ final class SideloadedAppsManager: ObservableObject {
                 let matched = result.matched
                 entries = matched.entries
                 unmatched = matched.unmatched
+                kindCounts = result.counts
                 await rebuildRefreshable()
                 hasLoaded = true
                 lastRefreshed = Date()
@@ -1067,20 +1119,41 @@ struct AppsView: View {
                     }
                 }
                 .cascadeItem(4)
-                ForEach(Array(manager.entries.enumerated()), id: \.element.id) { idx, status in
-                    // The row opens the Info sheet rather than pushing a page:
-                    // the same details, with the app's actions beside them.
-                    Button {
-                        infoTarget = status
-                    } label: {
-                        appRow(status)
+                // Grouped by how they were installed: TestFlight first, then
+                // sideloaded builds, each in expiry order.
+                ForEach(SideloadedApp.Kind.allCases.filter { ($0 == .testFlight || $0 == .sideloaded) && group(of: $0).count > 0 }
+                    .sorted { $0 == .testFlight && $1 != .testFlight }, id: \.self) { kind in
+                    let group = group(of: kind)
+                    HStack {
+                        Label(kind == .testFlight ? L("TestFlight") : L("Sideloaded"),
+                              systemImage: kind == .testFlight ? "paperplane.fill" : "signature")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Text("\(group.count)")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.tertiary)
                     }
-                    .buttonStyle(.plain)
-                    .cascadeItem(min(5 + idx, 9))
-                    .contextMenu { appMenu(status) }
+                    .padding(.top, 4)
+                    ForEach(group) { status in
+                        // The row opens the Info sheet rather than pushing a page:
+                        // the same details, with the app's actions beside them.
+                        Button {
+                            infoTarget = status
+                        } label: {
+                            appRow(status)
+                        }
+                        .buttonStyle(.plain)
+                        .contextMenu { appMenu(status) }
+                    }
                 }
             }
         }
+    }
+
+    /// The listed apps of one kind, in the order the manager sorted them.
+    private func group(of kind: SideloadedApp.Kind) -> [SideloadedAppStatus] {
+        manager.entries.filter { $0.app.kind == kind }
     }
 
     /// The live JIT session, with the way out of it.
@@ -1275,7 +1348,7 @@ struct AppsView: View {
                     Text(status.app.name)
                         .font(.subheadline.weight(.semibold))
                         .lineLimit(1)
-                    Text(L("Sideloaded"))
+                    Text(status.app.kind.rowSubtitle)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                     expiryLabel(profile, urgency: urgency)
