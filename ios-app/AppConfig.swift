@@ -1,47 +1,155 @@
 import Combine
 import Foundation
 
-/// What to change about a custom `.ipa` on the way to being signed: its
-/// identity, its nested bundles, and the tweaks loaded into it.
-///
-/// Everything here is optional and empty by default — an untouched
-/// configuration leaves the archive exactly as imported.
-struct AppConfig: Codable, Equatable {
+/// Which injection framework a tweak expects. A package's `Depends` names one,
+/// and the app has to load that framework beside the tweak.
+enum TweakInjectorKind: String, Codable, CaseIterable, Identifiable {
+    case ellekit
+    case substrate
+    case libhooker
+    case substitute
 
-    /// A tweak to load into the app's main executable.
-    struct Tweak: Codable, Identifiable, Equatable {
-        var id = UUID()
-        /// File name, e.g. `MyTweak.dylib`.
-        var name: String
-        /// Where the library was copied to, in Application Support.
-        var path: String
-        /// What the executable loads, e.g. `@executable_path/Frameworks/MyTweak.dylib`.
-        var loadPath: String
-        /// Load it if it's there rather than requiring it (`LC_LOAD_WEAK_DYLIB`).
-        var weak = false
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .ellekit:    return "ElleKit"
+        case .substrate:  return "CydiaSubstrate"
+        case .libhooker:  return "libhooker"
+        case .substitute: return "Substitute"
+        }
     }
 
-    /// New `CFBundleIdentifier`. Extensions and watch apps are re-prefixed to
-    /// match, which is what makes a second copy of an app installable.
-    var bundleIdentifier = ""
-    /// New `CFBundleDisplayName` and `CFBundleName`.
-    var displayName = ""
-    /// New `CFBundleShortVersionString`.
-    var version = ""
-    /// New `CFBundleVersion`.
-    var build = ""
-    /// Drop `PlugIns/` from the app, so no extension is registered or signed.
-    var stripExtensions = false
-    /// Drop the embedded watch app.
-    var stripWatchApp = false
-    /// Libraries to inject into the main executable and add to `Frameworks/`.
-    var tweaks: [Tweak] = []
+    /// What a package's `Depends` calls it.
+    var packageName: String {
+        switch self {
+        case .ellekit:    return "ellekit"
+        case .substrate:  return "mobilesubstrate"
+        case .libhooker:  return "libhooker"
+        case .substitute: return "substitute"
+        }
+    }
 
-    /// True when applying it would change anything at all.
+    /// The library file name to look for when one is added by hand.
+    var fileName: String {
+        switch self {
+        case .ellekit:    return "ellekit.dylib"
+        case .substrate:  return "CydiaSubstrate"
+        case .libhooker:  return "libhooker.dylib"
+        case .substitute: return "libsubstitute.dylib"
+        }
+    }
+}
+
+/// A library the user supplied that provides one of those frameworks. Bundling
+/// them isn't possible, so they're added from a copy the user already has.
+struct TweakInjector: Codable, Identifiable, Equatable {
+    var id = UUID()
+    var kind: TweakInjectorKind
+    /// Path to the copy in Application Support.
+    var path: String
+    /// The name it gets inside the app's `Frameworks` folder.
+    var fileName: String
+}
+
+/// A tweak — a `.dylib` on its own, or a `.deb` that carries one or more.
+struct Tweak: Codable, Identifiable, Equatable {
+
+    enum Kind: String, Codable {
+        case dylib
+        case deb
+    }
+
+    var id = UUID()
+    /// What the list calls it: the file's name, or the package's name.
+    var name: String
+    /// The copy in Application Support (a `.dylib` or the `.deb` itself).
+    var path: String
+    var kind: Kind
+    /// For a `.dylib`: where the executable should load it from.
+    var loadPath: String
+    /// Load it if it's there rather than requiring it.
+    var weak = false
+    /// The injector the package says it needs, worked out when it was added.
+    var requiresInjector: TweakInjectorKind?
+
+    var isDeb: Bool { kind == .deb }
+}
+
+/// One addition to a plist: a top-level key, its type, and its value.
+struct PlistEdit: Codable, Identifiable, Equatable {
+
+    enum Kind: String, Codable, CaseIterable, Identifiable {
+        case string, boolean, integer, array
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .string:  return L("Text")
+            case .boolean: return L("Switch")
+            case .integer: return L("Number")
+            case .array:   return L("List")
+            }
+        }
+    }
+
+    var id = UUID()
+    var key: String
+    var kind: Kind = .string
+    var value: String = ""
+
+    /// The value as a plist object, or nil when it can't be one.
+    var object: Any? {
+        let name = key.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty else { return nil }
+        switch kind {
+        case .string:
+            return value
+        case .boolean:
+            return (value as NSString).boolValue
+        case .integer:
+            guard let number = Int(value) else { return nil }
+            return number
+        case .array:
+            let items = value.split(separator: ",").map {
+                $0.trimmingCharacters(in: .whitespaces)
+            }.filter { !$0.isEmpty }
+            return items
+        }
+    }
+}
+
+/// What to change about a custom `.ipa` on the way to being signed: its
+/// identity, its plists, which extensions survive, the entitlements it
+/// declares, and the tweaks loaded into it.
+struct AppConfig: Codable, Equatable {
+
+    /// New `CFBundleIdentifier`. Extensions and watch apps are re-prefixed.
+    var bundleIdentifier = ""
+    var displayName = ""
+    var version = ""
+    var build = ""
+    /// Extra or replacement top-level keys in the app's `Info.plist`.
+    var plistEdits: [PlistEdit] = []
+    /// Keys written into the app's archived entitlements file.
+    var entitlements: [PlistEdit] = []
+    /// `PlugIns` entries to leave out, by their bundle's name (`Widget.appex`).
+    var disabledExtensions: [String] = []
+    /// Drop every extension instead of naming them.
+    var stripExtensions = false
+    var stripWatchApp = false
+    var tweaks: [Tweak] = []
+    /// Bumped when the shape changes, so old saved configurations are ignored
+    /// rather than decoded wrong.
+    var schema = 2
+
     var isActive: Bool {
         !bundleIdentifier.trimmed.isEmpty || !displayName.trimmed.isEmpty
             || !version.trimmed.isEmpty || !build.trimmed.isEmpty
-            || stripExtensions || stripWatchApp || !tweaks.isEmpty
+            || !plistEdits.isEmpty || !entitlements.isEmpty
+            || !disabledExtensions.isEmpty || stripExtensions || stripWatchApp
+            || !tweaks.isEmpty
     }
 
     /// One line per change, for the Install screen's summary.
@@ -51,10 +159,13 @@ struct AppConfig: Codable, Equatable {
         if !displayName.trimmed.isEmpty { out.append(L("Name: %@", displayName.trimmed)) }
         if !version.trimmed.isEmpty { out.append(L("Version: %@", version.trimmed)) }
         if !build.trimmed.isEmpty { out.append(L("Build: %@", build.trimmed)) }
-        if stripExtensions { out.append(L("Extensions removed")) }
+        if !plistEdits.isEmpty { out.append(L("%d plist keys", plistEdits.count)) }
+        if !entitlements.isEmpty { out.append(L("%d entitlements", entitlements.count)) }
+        if stripExtensions { out.append(L("All extensions removed")) }
+        if !disabledExtensions.isEmpty { out.append(L("%d extensions removed", disabledExtensions.count)) }
         if stripWatchApp { out.append(L("Watch app removed")) }
         for tweak in tweaks {
-            out.append(tweak.weak ? L("Tweak (weak): %@", tweak.name) : L("Tweak: %@", tweak.name))
+            out.append(tweak.isDeb ? L("Tweak (deb): %@", tweak.name) : L("Tweak: %@", tweak.name))
         }
         return out
     }
@@ -70,14 +181,7 @@ extension String {
 }
 
 /// The app-wide configuration, kept in Application Support next to the tweaks
-/// it points at.
-///
-/// A shared instance rather than an injected object: the Install screen edits
-/// it and `Engine` reads it mid-run, from a task that isn't a view.
-///
-/// Not actor-isolated, like the other managers here: everything that touches it
-/// runs on the main thread already, and `Engine` reads it from a `@MainActor`
-/// step.
+/// and injector libraries it points at.
 final class AppConfigStore: ObservableObject {
 
     static let shared = AppConfigStore()
@@ -85,51 +189,74 @@ final class AppConfigStore: ObservableObject {
     @Published var config: AppConfig {
         didSet { if config != oldValue { save() } }
     }
+    /// Injector libraries the user added, one per framework.
+    @Published private(set) var injectors: [TweakInjector] = []
 
-    private static let defaultsKey = "appConfig.v1"
+    private static let defaultsKey = "appConfig.v2"
+    private static let injectorsKey = "appConfig.injectors.v1"
 
     private init() {
-        config = Self.load()
-        Self.removeMissingTweaks(from: &config)
+        config = Self.loadConfig()
+        injectors = Self.loadInjectors()
+        Self.forgetMissingFiles(in: &config, injectors: &injectors)
     }
 
-    // MARK: Tweaks
+    // MARK: - Files
 
-    /// Where tweak copies live, so a picked file that came from a temporary
-    /// location survives until the next install.
-    private static var tweaksDirectory: URL {
+    /// Where tweak and injector copies live, so a picked file that came from a
+    /// temporary location survives until the next install.
+    static var supportDirectory: URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory,
                                             in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
-        return base.appendingPathComponent("AppConfig/Tweaks", isDirectory: true)
+        return base.appendingPathComponent("AppConfig", isDirectory: true)
     }
 
-    /// Copies picked `.dylib` files in and adds them to the list. Returns how
-    /// many were added and what couldn't be read.
+    static var tweaksDirectory: URL { supportDirectory.appendingPathComponent("Tweaks", isDirectory: true) }
+    static var injectorsDirectory: URL { supportDirectory.appendingPathComponent("Injectors", isDirectory: true) }
+
+    private static func copy(_ url: URL, into directory: URL) throws -> URL {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let destination = directory.appendingPathComponent(url.lastPathComponent)
+        if FileManager.default.fileExists(atPath: destination.path) {
+            try FileManager.default.removeItem(at: destination)
+        }
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        try FileManager.default.copyItem(at: url, to: destination)
+        return destination
+    }
+
+    // MARK: - Tweaks
+
+    /// Adds picked `.dylib` or `.deb` files. A `.deb` is read once here, so its
+    /// package name and required injector can be shown before it's installed.
     @discardableResult
     func addTweaks(_ urls: [URL]) -> (added: Int, failed: [String]) {
         var added = 0
         var failed: [String] = []
-        try? FileManager.default.createDirectory(at: Self.tweaksDirectory,
-                                                 withIntermediateDirectories: true)
         for url in urls {
-            let scoped = url.startAccessingSecurityScopedResource()
-            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
             let name = url.lastPathComponent
-            guard name.lowercased().hasSuffix(".dylib") else {
+            let lowered = name.lowercased()
+            guard lowered.hasSuffix(".dylib") || lowered.hasSuffix(".deb") else {
                 failed.append(name)
                 continue
             }
-            let destination = Self.tweaksDirectory.appendingPathComponent(name)
             do {
-                if FileManager.default.fileExists(atPath: destination.path) {
-                    try FileManager.default.removeItem(at: destination)
+                let stored = try Self.copy(url, into: Self.tweaksDirectory)
+                if lowered.hasSuffix(".deb") {
+                    let package = try DebArchive.read(stored)
+                    config.tweaks.removeAll { $0.path == stored.path }
+                    config.tweaks.append(Tweak(name: package.name ?? name,
+                                               path: stored.path,
+                                               kind: .deb,
+                                               loadPath: "",
+                                               requiresInjector: package.requiredInjector))
+                } else {
+                    config.tweaks.removeAll { $0.path == stored.path }
+                    config.tweaks.append(Tweak(name: name, path: stored.path, kind: .dylib,
+                                               loadPath: "@executable_path/Frameworks/\(name)"))
                 }
-                try FileManager.default.copyItem(at: url, to: destination)
-                // A dylib already listed by that name is replaced, not doubled.
-                config.tweaks.removeAll { $0.name == name }
-                config.tweaks.append(AppConfig.Tweak(name: name, path: destination.path,
-                                                     loadPath: "@executable_path/Frameworks/\(name)"))
                 added += 1
             } catch {
                 failed.append(name)
@@ -141,7 +268,6 @@ final class AppConfigStore: ObservableObject {
     func removeTweak(_ id: UUID) {
         guard let index = config.tweaks.firstIndex(where: { $0.id == id }) else { return }
         let tweak = config.tweaks.remove(at: index)
-        // The copy is the app's own, so removing it is safe.
         try? FileManager.default.removeItem(atPath: tweak.path)
     }
 
@@ -150,29 +276,102 @@ final class AppConfigStore: ObservableObject {
         config.tweaks[index].weak = weak
     }
 
+    /// What a `.deb` carries, for the row's subtitle.
+    func packageInfo(for tweak: Tweak) -> DebArchive.Package? {
+        guard tweak.isDeb else { return nil }
+        return try? DebArchive.read(URL(fileURLWithPath: tweak.path))
+    }
+
+    // MARK: - Injectors
+
+    /// Adds the library that provides `kind`, replacing any previous one.
+    @discardableResult
+    func addInjector(_ kind: TweakInjectorKind, from url: URL) -> Bool {
+        guard url.pathExtension.lowercased() == "dylib",
+              let stored = try? Self.copy(url, into: Self.injectorsDirectory)
+        else { return false }
+        injectors.removeAll { $0.kind == kind }
+        injectors.append(TweakInjector(kind: kind, path: stored.path,
+                                       fileName: stored.lastPathComponent))
+        saveInjectors()
+        return true
+    }
+
+    func removeInjector(_ kind: TweakInjectorKind) {
+        guard let index = injectors.firstIndex(where: { $0.kind == kind }) else { return }
+        let injector = injectors.remove(at: index)
+        try? FileManager.default.removeItem(atPath: injector.path)
+        saveInjectors()
+    }
+
+    func injector(for kind: TweakInjectorKind) -> TweakInjector? {
+        injectors.first { $0.kind == kind }
+    }
+
+    /// The injectors the configured tweaks need but that aren't here yet.
+    var missingInjectors: [TweakInjectorKind] {
+        let needed = Set(config.tweaks.compactMap { $0.requiresInjector })
+        return needed.filter { injector(for: $0) == nil }.sorted { $0.title < $1.title }
+    }
+
+    // MARK: - Whole configuration
+
+    /// The configuration as JSON, for keeping or sharing.
+    func exportData() -> Data? {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return try? encoder.encode(config)
+    }
+
+    /// Replaces the configuration from a JSON file. Tweaks and injectors keep
+    /// their paths, so an imported file only works for packages that are here.
+    @discardableResult
+    func importData(_ data: Data) -> Bool {
+        guard let decoded = try? JSONDecoder().decode(AppConfig.self, from: data),
+              decoded.schema == 2 else { return false }
+        config = decoded
+        Self.forgetMissingFiles(in: &config, injectors: &injectors)
+        return true
+    }
+
     func reset() {
         let tweaks = config.tweaks
         config = AppConfig()
         for tweak in tweaks { try? FileManager.default.removeItem(atPath: tweak.path) }
     }
 
-    // MARK: Persistence
+    // MARK: - Persistence
 
     private func save() {
         guard let data = try? JSONEncoder().encode(config) else { return }
         UserDefaults.standard.set(data, forKey: Self.defaultsKey)
     }
 
-    private static func load() -> AppConfig {
+    private func saveInjectors() {
+        guard let data = try? JSONEncoder().encode(injectors) else { return }
+        UserDefaults.standard.set(data, forKey: Self.injectorsKey)
+    }
+
+    private static func loadConfig() -> AppConfig {
         guard let data = UserDefaults.standard.data(forKey: defaultsKey),
-              let config = try? JSONDecoder().decode(AppConfig.self, from: data)
+              let config = try? JSONDecoder().decode(AppConfig.self, from: data),
+              config.schema == 2
         else { return AppConfig() }
         return config
     }
 
-    /// A tweak whose file has been deleted (by iOS, or by the user in Files)
-    /// can't be injected, so it's dropped rather than failing the install.
-    private static func removeMissingTweaks(from config: inout AppConfig) {
+    private static func loadInjectors() -> [TweakInjector] {
+        guard let data = UserDefaults.standard.data(forKey: injectorsKey),
+              let injectors = try? JSONDecoder().decode([TweakInjector].self, from: data)
+        else { return [] }
+        return injectors
+    }
+
+    /// A tweak or injector whose file has been deleted (by iOS, or by the user
+    /// in Files) can't be used, so it's dropped rather than failing the install.
+    private static func forgetMissingFiles(in config: inout AppConfig,
+                                           injectors: inout [TweakInjector]) {
         config.tweaks.removeAll { !FileManager.default.fileExists(atPath: $0.path) }
+        injectors.removeAll { !FileManager.default.fileExists(atPath: $0.path) }
     }
 }

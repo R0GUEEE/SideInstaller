@@ -5,9 +5,9 @@ import Foundation
 func L(_ key: String) -> String { key }
 func L(_ key: String, _ arguments: CVarArg...) -> String { key }
 
-// Arguments: <ipa> <tweak.dylib>
+// Arguments: <ipa> <tweak.dylib> [deb] [deb]
 guard CommandLine.arguments.count >= 3 else {
-    FileHandle.standardError.write(Data("usage: patch-selftest <ipa> <tweak.dylib>\n".utf8))
+    FileHandle.standardError.write(Data("usage: patch-selftest <ipa> <tweak.dylib> [deb]\n".utf8))
     exit(64)
 }
 let ipa = URL(fileURLWithPath: CommandLine.arguments[1])
@@ -21,10 +21,11 @@ config.build = "42"
 config.stripWatchApp = true
 config.tweaks = [AppConfig.Tweak(name: "TestTweak.dylib",
                                  path: tweak,
+                                 kind: .dylib,
                                  loadPath: "@executable_path/Frameworks/TestTweak.dylib")]
 
 do {
-    let outcome = try IPAPatch.apply(config, to: ipa)
+    let outcome = try IPAPatch.apply(config, injectors: [], to: ipa)
     print("APPLIED")
     for line in outcome.applied { print("  + \(line)") }
     for line in outcome.warnings { print("  ! \(line)") }
@@ -35,7 +36,7 @@ do {
 
 // A second pass must be a no-op: same identity, same tweak, nothing rewritten.
 do {
-    let second = try IPAPatch.apply(config, to: ipa)
+    let second = try IPAPatch.apply(config, injectors: [], to: ipa)
     print("SECOND PASS")
     for line in second.applied { print("  + \(line)") }
     for line in second.warnings { print("  ! \(line)") }
@@ -46,4 +47,25 @@ do {
 } catch {
     print("FAILED on the second pass: \(error.localizedDescription)")
     exit(1)
+}
+
+// A `.deb`, when one is given: the package fields and the libraries that would
+// be injected out of it.
+if CommandLine.arguments.count >= 4 {
+    do {
+        let package = try DebArchive.read(URL(fileURLWithPath: CommandLine.arguments[3]))
+        print("DEB PACKAGE: \(package.identifier ?? "-")/\(package.name ?? "-")/\(package.version ?? "-")/\(package.architecture ?? "-")")
+        print("DEB DEPENDS: \(package.depends ?? "-")")
+        print("DEB INJECTOR: \(package.requiredInjector?.rawValue ?? "none")")
+        for library in package.libraries {
+            print("DEB LIB: \(library.path) -> \(library.fileName) (\(library.data.count) bytes)")
+        }
+        if package.libraries.isEmpty {
+            print("FAILED: the package carried no library")
+            exit(1)
+        }
+    } catch {
+        print("FAILED reading the deb: \(error.localizedDescription)")
+        exit(1)
+    }
 }

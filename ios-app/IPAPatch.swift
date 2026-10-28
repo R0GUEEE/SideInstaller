@@ -43,7 +43,11 @@ enum IPAPatch {
     }
 
     /// Applies `config` to the archive at `url`, replacing it on success.
-    static func apply(_ config: AppConfig, to url: URL) throws -> Outcome {
+    ///
+    /// `injectors` are the injection frameworks the user supplied; the ones a
+    /// package's `Depends` asks for are loaded before the tweaks themselves.
+    static func apply(_ config: AppConfig, injectors: [TweakInjector],
+                      to url: URL) throws -> Outcome {
         guard config.isActive else { return Outcome() }
         let source = try FileHandle(forReadingFrom: url)
         defer { try? source.close() }
@@ -63,6 +67,11 @@ enum IPAPatch {
 
         if config.stripExtensions { droppedPrefixes.append(prefix + "PlugIns/") }
         if config.stripWatchApp { droppedPrefixes.append(prefix + "Watch/") }
+        if !config.disabledExtensions.isEmpty {
+            for name in config.disabledExtensions {
+                droppedPrefixes.append(prefix + "PlugIns/" + name + "/")
+            }
+        }
 
         // MARK: Info.plist
         let plistPath = prefix + "Info.plist"
@@ -98,12 +107,53 @@ enum IPAPatch {
             plistChanged = true
             outcome.applied.append(L("Build set to %@", newBuild))
         }
+        // Keys added by hand: `CFBundleIcons`, a URL scheme, `itunesstored`…
+        for edit in config.plistEdits {
+            guard let value = edit.object else {
+                outcome.warnings.append(L("%@: “%@” isn't a valid value", edit.key, edit.value))
+                continue
+            }
+            let key = edit.key.trimmed
+            guard !key.isEmpty else { continue }
+            if let current = info[key], valuesMatch(current, value) { continue }
+            info[key] = value
+            plistChanged = true
+            outcome.applied.append(L("Info.plist: %@ = %@", key, edit.value))
+        }
         if plistChanged {
             guard let data = try? PropertyListSerialization.data(fromPropertyList: info,
                                                                  format: .binary, options: 0)
             else { throw PatchError.corrupt(plistPath) }
             replacements[plistPath] = data
             replacedModes[plistPath] = plistEntry.externalAttributes
+        }
+
+        // MARK: Entitlements
+        // The signature the installer writes carries the profile's entitlements,
+        // so these are what the build *declares* — the file the signer reads
+        // when it looks for an app's own list.
+        if !config.entitlements.isEmpty {
+            let entitlementsPath = prefix + "archived-expanded-entitlements.xcent"
+            var entitlements: [String: Any] = [:]
+            if let existing = entries.first(where: { $0.name == entitlementsPath }),
+               let raw = try contents(of: existing, in: source),
+               let decoded = try? PropertyListSerialization.propertyList(from: raw, options: [], format: nil)
+                as? [String: Any] {
+                entitlements = decoded
+            }
+            for edit in config.entitlements {
+                guard let value = edit.object else { continue }
+                let key = edit.key.trimmed
+                guard !key.isEmpty else { continue }
+                entitlements[key] = value
+                outcome.applied.append(L("Entitlement: %@", key))
+            }
+            if let data = try? PropertyListSerialization.data(fromPropertyList: entitlements,
+                                                             format: .binary, options: 0) {
+                replacements[entitlementsPath] = data
+                replacedModes[entitlementsPath] = entries.first { $0.name == entitlementsPath }?
+                    .externalAttributes ?? (0o100644 << 16)
+            }
         }
 
         // MARK: Nested bundle identifiers
@@ -136,26 +186,25 @@ enum IPAPatch {
                   var binary = try contents(of: entry, in: source)
             else { throw PatchError.corrupt(executablePath) }
 
-            for tweak in config.tweaks {
-                guard FileManager.default.fileExists(atPath: tweak.path),
-                      let library = try? Data(contentsOf: URL(fileURLWithPath: tweak.path), options: .uncached)
-                else {
-                    outcome.warnings.append(L("%@ is missing, so it wasn't injected", tweak.name))
+            let libraries = resolve(config.tweaks, injectors: injectors, outcome: &outcome)
+            var loaded = Set<String>()
+            for library in libraries {
+                guard loaded.insert(library.fileName).inserted else {
+                    outcome.warnings.append(L("%@ is already loaded by another tweak", library.fileName))
                     continue
                 }
-                let result = try MachOInject.inject(library: tweak.loadPath, weak: tweak.weak,
+                let result = try MachOInject.inject(library: library.loadPath, weak: library.weak,
                                                     into: binary, name: executableName)
                 binary = result.data
                 switch result.state {
                 case .injected:
-                    outcome.applied.append(L("Injected %@", tweak.name))
+                    outcome.applied.append(L("Injected %@", library.displayName))
                 case .alreadyLoaded:
-                    outcome.warnings.append(L("%@ was already loaded", tweak.name))
+                    outcome.warnings.append(L("%@ was already loaded", library.displayName))
                 }
                 // The library goes beside any frameworks the app already ships;
                 // `@executable_path/Frameworks` is where iOS apps load from.
-                let bundledPath = prefix + "Frameworks/" + tweak.name
-                injected[bundledPath] = library
+                injected[prefix + "Frameworks/" + library.fileName] = library.data
             }
             replacements[executablePath] = binary
             replacedModes[executablePath] = entry.externalAttributes
@@ -186,7 +235,111 @@ enum IPAPatch {
         }
         if config.stripExtensions { outcome.applied.append(L("App extensions removed")) }
         if config.stripWatchApp { outcome.applied.append(L("Watch app removed")) }
+        for name in config.disabledExtensions where !config.stripExtensions {
+            outcome.applied.append(L("%@ removed", name))
+        }
         return outcome
+    }
+
+    /// One library as it will be injected: where the executable loads it from,
+    /// its bytes, and whether it's optional.
+    private struct LibraryToInject {
+        let displayName: String
+        let fileName: String
+        let loadPath: String
+        let weak: Bool
+        let data: Data
+    }
+
+    /// Everything to load, injectors first: each `.dylib` as it is, and each
+    /// `.deb` unpacked into the libraries it installs.
+    private static func resolve(_ tweaks: [Tweak], injectors: [TweakInjector],
+                                outcome: inout Outcome) -> [LibraryToInject] {
+        var out: [LibraryToInject] = []
+        var injectorsAdded = Set<TweakInjectorKind>()
+
+        /// Loads the framework a package depends on, once, ahead of the tweak.
+        func loadInjector(_ kind: TweakInjectorKind, from injectors: [TweakInjector],
+                          added: inout Set<TweakInjectorKind>, outcome: inout Outcome,
+                          tweakName: String,
+                          add: (String, String, Data, Bool) -> Void) {
+            guard added.insert(kind).inserted else { return }
+            guard let injector = injectors.first(where: { $0.kind == kind }),
+                  let data = try? Data(contentsOf: URL(fileURLWithPath: injector.path),
+                                       options: .uncached)
+            else {
+                outcome.warnings.append(L("%@ needs %@, which isn't added under Injectors",
+                                          tweakName, kind.title))
+                return
+            }
+            add(injector.kind.title, injector.fileName, data, false)
+        }
+
+        func add(_ name: String, _ fileName: String, _ data: Data, weak: Bool) {
+            // A library built for another slice can't run here, and injecting it
+            // would only make the app crash on launch.
+            guard let image = machO(data) else {
+                outcome.warnings.append(L("%@ isn't a Mach-O library", fileName))
+                return
+            }
+            guard image.archs.contains(where: { $0.hasPrefix("arm64") }) else {
+                outcome.warnings.append(L("%@ is built for %@ — this iPhone needs arm64",
+                                          fileName, image.archs.joined(separator: ", ")))
+                return
+            }
+            out.append(LibraryToInject(displayName: name, fileName: fileName,
+                                       loadPath: "@executable_path/Frameworks/\(fileName)",
+                                       weak: weak, data: data))
+        }
+
+        for tweak in tweaks {
+            switch tweak.kind {
+            case .dylib:
+                guard let data = try? Data(contentsOf: URL(fileURLWithPath: tweak.path),
+                                           options: .uncached) else {
+                    outcome.warnings.append(L("%@ is missing, so it wasn't injected", tweak.name))
+                    continue
+                }
+                // A hand-added library may still say which framework it needs,
+                // so its injector is loaded first like a package's.
+                if let kind = tweak.requiresInjector {
+                    loadInjector(kind, from: injectors, added: &injectorsAdded,
+                                 outcome: &outcome, tweakName: tweak.name, add: add)
+                }
+                add(tweak.name, (tweak.path as NSString).lastPathComponent, data, weak: tweak.weak)
+
+            case .deb:
+                guard let package = try? DebArchive.read(URL(fileURLWithPath: tweak.path)) else {
+                    outcome.warnings.append(L("%@ couldn't be unpacked", tweak.name))
+                    continue
+                }
+                // The injector the package depends on comes first, or the tweak
+                // has nothing to hook with.
+                if let kind = package.requiredInjector {
+                    loadInjector(kind, from: injectors, added: &injectorsAdded,
+                                 outcome: &outcome, tweakName: tweak.name, add: add)
+                }
+                guard !package.libraries.isEmpty else {
+                    outcome.warnings.append(L("%@ carries no library to inject", tweak.name))
+                    continue
+                }
+                for library in package.libraries {
+                    add("\(tweak.name) · \(library.fileName)", library.fileName,
+                        library.data, weak: tweak.weak)
+                }
+            }
+        }
+        return out
+    }
+
+    /// Whether a plist value already equals what an edit wants to set.
+    private static func valuesMatch(_ current: Any, _ wanted: Any) -> Bool {
+        switch (current, wanted) {
+        case let (a as String, b as String):   return a == b
+        case let (a as NSNumber, b as NSNumber): return a == b
+        case let (a as [String], b as [String]): return a == b
+        default: return false
+        }
     }
 
     // MARK: - The app inside the archive

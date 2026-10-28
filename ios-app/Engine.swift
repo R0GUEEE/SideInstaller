@@ -2048,12 +2048,19 @@ final class Engine: ObservableObject {
     private func applyAppConfiguration() async throws {
         guard (downloadedSource ?? installSource) == .custom,
               let path = downloadedIPAPath else { return }
-        let config = AppConfigStore.shared.config
+        let store = AppConfigStore.shared
+        let config = store.config
         guard config.isActive else { return }
+        // An injector the tweaks need but that hasn't been added is worth
+        // saying before the install runs, not after it fails to launch.
+        for kind in store.missingInjectors {
+            log("⚠️ A tweak needs \(kind.title), which isn't added under App configuration › Injectors.")
+        }
         log("=== Applying app configuration ===")
         let url = URL(fileURLWithPath: path)
+        let injectors = store.injectors
         let outcome = try await Task.detached(priority: .userInitiated) {
-            try IPAPatch.apply(config, to: url)
+            try IPAPatch.apply(config, injectors: injectors, to: url)
         }.value
         for line in outcome.applied { log("  \(line)") }
         for line in outcome.warnings { log("⚠️ \(line)") }
@@ -3433,6 +3440,25 @@ final class Engine: ObservableObject {
     // Free provisioning profiles expire after seven days. A refresh re-signs the
     // app and installs it over itself, reusing the pipeline's sign and install
     // steps without touching the one-click checklist.
+
+    /// Removes an app from the device, data and all, over the same link the
+    /// install uses.
+    @MainActor
+    func uninstallApp(bundleID: String, name: String) async throws {
+        guard !isRunning else {
+            throw EngineError.message(L("An install is already running. Wait for it to finish, then uninstall."))
+        }
+        try await ensurePairingConnection()
+        log("=== Uninstalling \(name) ===")
+        do {
+            try await onDeviceQueue { try self.connection.uninstall(bundleID: bundleID) }
+            log("Uninstalled \(bundleID).")
+        } catch {
+            let message = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+            log("⛔️ Uninstall failed: \(message)")
+            throw EngineError.message(L("Couldn't uninstall \(name): \(message)"))
+        }
+    }
 
     /// Prepares for a refresh: checks iOS and credentials, opens the device link
     /// (which provides the UDID for signing), and signs in.

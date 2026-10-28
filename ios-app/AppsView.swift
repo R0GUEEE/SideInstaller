@@ -426,12 +426,21 @@ final class SideloadedAppsManager: ObservableObject {
     /// Re-signs and reinstalls every refreshable app, one at a time (they share
     /// one device link and signing queue, and Apple's API is rate-limited).
     func refreshAll() {
-        guard !isRefreshing, !isWorking, !refreshable.isEmpty else { return }
+        refresh(refreshable, summary: nil)
+    }
+
+    /// Re-signs and reinstalls one app, chosen from its row.
+    func refresh(_ job: RefreshJob) {
+        refresh([job], summary: nil)
+    }
+
+    private func refresh(_ queue: [RefreshJob], summary: String?) {
+        guard !isRefreshing, !isWorking, !queue.isEmpty else { return }
         guard !engine.isRunning else {
             lastError = ErrorHelp.explained(L("An install is already running. Wait for it to finish, then refresh."))
             return
         }
-        jobs = refreshable
+        jobs = queue
         isRefreshing = true
         lastError = nil
         refreshSummary = nil
@@ -552,6 +561,9 @@ final class SideloadedAppsManager: ObservableObject {
 /// Sideloaded apps page: apps installed with a provisioning profile, their App
 /// ID, and time until expiry. Pushed from Tools (relies on its `NavigationStack`).
 struct AppsView: View {
+    /// The configured sources, searched when an app might have an update.
+    @ObservedObject var sources: SourceStore
+    @State private var pendingUninstall: SideloadedAppStatus?
     /// Observed so labels redraw when the language changes.
     @EnvironmentObject private var loc: Localizer
     /// Observed for `installProgress` during a refresh.
@@ -585,6 +597,17 @@ struct AppsView: View {
         .toolbar { settingsToolbarItem(isPresented: $showSettings) }
         .sheet(isPresented: $showSettings) { SettingsView() }
         .onAppear { manager.autoLoad() }
+        .confirmationDialog(L("Uninstall this app?"),
+                            isPresented: Binding(get: { pendingUninstall != nil },
+                                                 set: { if !$0 { pendingUninstall = nil } }),
+                            presenting: pendingUninstall) { status in
+            Button(L("Uninstall %@", status.app.name), role: .destructive) {
+                uninstall(status)
+            }
+            Button(L("Cancel"), role: .cancel) {}
+        } message: { status in
+            Text(L("The app and everything it stored are removed from this iPhone. Its seven-day clock stops, and reinstalling it later starts a new one."))
+        }
         .alert(L("Refresh all apps?"), isPresented: $confirmRefresh) {
             Button(L("Refresh all")) { manager.refreshAll() }
             Button(L("Cancel"), role: .cancel) { }
@@ -821,10 +844,70 @@ struct AppsView: View {
                         appRow(status)
                     }
                     .buttonStyle(.plain)
-                    .cascadeItem(5 + idx)
+                    .cascadeItem(min(5 + idx, 9))
+                    .contextMenu { appMenu(status) }
                 }
             }
         }
+    }
+
+    /// The actions an installed app offers: refresh its seven days, update to
+    /// the newest release a source carries, or remove it.
+    @ViewBuilder
+    private func appMenu(_ status: SideloadedAppStatus) -> some View {
+        if let job = manager.refreshable.first(where: { $0.bundleID == status.app.bundleID }) {
+            Button {
+                manager.refresh(job)
+            } label: {
+                Label(L("Re-sign (refresh 7 days)"), systemImage: "signature")
+            }
+        }
+        if let update = updateCandidate(for: status) {
+            Button {
+                engine.installLinkedIPA(update.url)
+            } label: {
+                Label(L("Update to %@", update.version), systemImage: "arrow.down.circle")
+            }
+        }
+        Button(role: .destructive) {
+            pendingUninstall = status
+        } label: {
+            Label(L("Uninstall"), systemImage: "trash")
+        }
+    }
+
+    private func uninstall(_ status: SideloadedAppStatus) {
+        pendingUninstall = nil
+        Task {
+            do {
+                try await engine.uninstallApp(bundleID: status.app.bundleID,
+                                              name: status.app.name)
+                manager.load(quiet: true)
+            } catch {
+                manager.lastError = (error as? LocalizedError)?.errorDescription
+                    ?? String(describing: error)
+            }
+        }
+    }
+
+    /// The newest release of this app in any configured source, when it's newer
+    /// than what's installed.
+    private func updateCandidate(for status: SideloadedAppStatus) -> (version: String, url: URL)? {
+        let installed = status.app.version ?? "0"
+        var best: (version: String, url: URL)?
+        for loaded in sources.sources {
+            guard let source = loaded.source else { continue }
+            for app in source.installableApps where app.bundleIdentifier == status.app.bundleID {
+                guard let release = app.latest, let url = release.url,
+                      let version = release.version else { continue }
+                // Numeric compare, so 1.10 is newer than 1.9.
+                guard version.compare(installed, options: .numeric) == .orderedDescending else { continue }
+                if let current = best,
+                   version.compare(current.version, options: .numeric) != .orderedDescending { continue }
+                best = (version, url)
+            }
+        }
+        return best
     }
 
     private func appRow(_ status: SideloadedAppStatus) -> some View {
@@ -848,6 +931,14 @@ struct AppsView: View {
                     expiryLabel(profile, urgency: urgency)
                 }
                 Spacer(minLength: 8)
+                Menu {
+                    appMenu(status)
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
                 Image(systemName: "chevron.right")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.tertiary)

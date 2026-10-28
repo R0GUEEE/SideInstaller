@@ -537,16 +537,16 @@ struct ToolsView: View {
                     .buttonStyle(.plain)
                     .cascadeItem(rowIndex(4))
                     NavigationLink {
-                        AppsView(manager: appsManager)
+                        AppsView(sources: sourceStore, manager: appsManager)
                     } label: {
                         ToolRow(image: "AppsLogo", title: L("Sideloaded apps"))
                     }
                     .buttonStyle(.plain)
                     .cascadeItem(rowIndex(5))
                     NavigationLink {
-                        SourcesView(store: sourceStore)
+                        MarketplaceView(store: sourceStore)
                     } label: {
-                        ToolRow(icon: "shippingbox.fill", title: L("Sources"))
+                        ToolRow(icon: "square.grid.2x2.fill", title: L("Marketplace"))
                     }
                     .buttonStyle(.plain)
                     .cascadeItem(rowIndex(6))

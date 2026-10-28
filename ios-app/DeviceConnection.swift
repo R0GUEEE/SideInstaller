@@ -766,6 +766,21 @@ final class DeviceConnection {
         return out
     }
 
+    /// Removes an installed app from the device.
+    ///
+    /// `installation_proxy` does this over the same RSD link as the install, so
+    /// no AFC staging is involved: the app is simply gone, with its data.
+    func uninstall(bundleID: String) throws {
+        guard let adapter, let handshake else { throw fail("not connected") }
+        var client: OpaquePointer?
+        try check(installation_proxy_connect_rsd(adapter, handshake, &client),
+                  "installation_proxy_connect_rsd failed")
+        guard let client else { throw fail("installation_proxy client was null") }
+        defer { installation_proxy_client_free(client) }
+        let error = bundleID.withCString { installation_proxy_uninstall(client, $0, nil) }
+        try check(error, "installation_proxy_uninstall failed")
+    }
+
     /// Every installed app's full installation_proxy plist, including
     /// `Entitlements` and `ProfileValidated`, which identify sideloaded apps.
     ///
