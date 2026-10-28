@@ -468,7 +468,7 @@ final class SideloadedAppsManager: ObservableObject {
                 hasLoaded = true
                 lastRefreshed = Date()
                 loadIcons(for: apps.map(\.bundleID))
-                engine.log("Sideloaded apps: \(apps.count) sideloaded, \(profiles.count) profile(s) decoded.")
+                engine.log("Sideloaded apps: \(apps.count) sideloaded, \(inventory.profiles.count) profile(s) decoded.")
             } catch {
                 let message = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
                 if quiet {
