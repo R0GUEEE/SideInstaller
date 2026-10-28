@@ -199,7 +199,9 @@ enum SourceParser {
                 let digits = text.replacingOccurrences(of: ",", with: ".")
                 if let bytes = Int64(digits) { return bytes }
                 let upper = digits.uppercased()
-                let multipliers: [(String, Double)] = [("GB", 1 << 30), ("MB", 1 << 20), ("KB", 1 << 10)]
+                let multipliers: [(String, Double)] = [("GB", 1_073_741_824),
+                                                       ("MB", 1_048_576),
+                                                       ("KB", 1_024)]
                 for (suffix, factor) in multipliers where upper.hasSuffix(suffix) {
                     let number = Double(upper.replacingOccurrences(of: suffix, with: "")
                         .trimmingCharacters(in: .whitespaces)) ?? 0

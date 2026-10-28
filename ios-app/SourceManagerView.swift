@@ -259,7 +259,8 @@ struct SourceManagerView: View {
                             .font(.caption2)
                             .foregroundStyle(.tertiary)
                     }
-                    if loaded.isStale {
+                    if let date = loaded.fetched,
+                       Date().timeIntervalSince(date) > 6 * 60 * 60 {
                         Text(L("· cached"))
                             .font(.caption2)
                             .foregroundStyle(.tertiary)

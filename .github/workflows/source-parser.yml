@@ -30,7 +30,8 @@ jobs:
       - name: Build the checker
         run: |
           swiftc -O ios-app/SourceParser.swift ios-app/SourceKind.swift \
-            ios-app/GitHubSource.swift tools/parser-check/main.swift \
+            ios-app/MarketEntry.swift ios-app/GitHubSource.swift \
+            tools/parser-check/main.swift \
             -o /tmp/parser-check
 
       - name: Decode real sources
