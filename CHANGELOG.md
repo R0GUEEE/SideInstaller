@@ -5,6 +5,26 @@ All notable changes to SideInstaller are documented here.
 ## Unreleased
 
 ### Added
+- **A workaround for channels without web previews.** A public RSS bridge
+  (`tg.i-c-a.su`) republishes a channel with `<enclosure>` links to the files themselves, so those
+  channels now list *and download*. Measured: `blatants` 5 files, `binnichtaktivsipas` 5,
+  `iOS_Randy420` 1, `ipaomtk` 10 — all previously unreadable or post-only. The channel reader tries
+  the bridge and the preview and merges them: bridge links install directly, preview posts stay
+  current.
+- **A channel directory** replaces the free-text box: groups you can open, each channel with what it
+  carries and an Add button, plus the paste field for anything else.
+- **`/analyze` and `/analyze.json`** on the local server: the first renders every channel's apps as a
+  page a webview can load (app, version, size, and a link that either downloads or opens Telegram);
+  the second is the same as JSON.
+- **Background refreshes** via `BGAppRefreshTask`, plus a ~30-second `beginBackgroundTask` grace
+  period after backgrounding so a client can finish a fetch.
+
+### Note
+- **Silent audio and location keep-alive were not implemented.** Both are background-mode abuse —
+  they declare a purpose the app doesn't have, drain the battery, and are exactly what gets a
+  signing certificate pulled. The refresh + grace period is the honest ceiling iOS offers.
+
+### Added
 - **A local server for the Telegram source.** Sources › Telegram channels › **Local server** starts an
   HTTP server bound to `127.0.0.1` only, serving `/telegram-source.json` (rebuilt on every request),
   `/health` and a status page. That URL can be added as a source by anything on the same iPhone —

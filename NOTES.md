@@ -1547,3 +1547,29 @@ Measured against the live previews:
   public previews and imported exports, and its index page says exactly that rather than implying
   the account is connected.
 
+### The preview-off workaround, measured
+
+- **`tg.i-c-a.su/rss/<channel>`** serves a channel as RSS, and its `<enclosure>` URLs are
+  `https://tg.i-c-a.su/media/<channel>/<message>/<file>.ipa` — the files themselves, not pages. A
+  ranged GET returned `206 application/zip`, so they're downloadable and therefore installable.
+- Counts on the channels in question (live, this session): blatants 5, binnichtaktivsipas 5,
+  iOS_Randy420 1, ipaomtk 10 — against 0 for the first three through `t.me/s`.
+- `TelegramSource.entries` now asks both: bridge first (installable links), preview second (newest
+  posts, and the channel's own name), merged by app name. If either fails the other still answers;
+  only when both fail does the source show an error — the bridge's, since it's the one that was
+  supposed to work.
+- **Trade-off stated in the code**: the bridge is a third-party service. It can rate-limit, move or
+  stop; nothing else depends on it.
+
+### Backgrounding: what was built and what was refused
+
+- Built: `beginBackgroundTask` (a ~30 s grace period so a client can finish a fetch after the app is
+  backgrounded) and `BGAppRefreshTask` (registered in `Info.plist` as
+  `com.frizzlem.sideinstaller.telegram`, scheduled four hours out, rescanning and regenerating the
+  source while the app is closed).
+- Refused: keeping the app alive with silent audio under the `audio` background mode, or a location
+  session under `location`. Both are background-mode abuse: they declare a purpose the app doesn't
+  have, they drain the battery, and they're the sort of thing that gets a signing certificate pulled.
+  iOS also throttles silent audio that never plays anything audible, so it isn't even reliable.
+  The UI says this in the card rather than leaving it unexplained.
+
