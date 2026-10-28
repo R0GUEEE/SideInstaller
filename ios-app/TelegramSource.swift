@@ -42,7 +42,12 @@ enum TelegramSource {
 
     /// Reads the channel's public preview and turns its `.ipa` documents into
     /// entries.
-    static func entries(channel: String) async throws -> (name: String, entries: [MarketEntry]) {
+    ///
+    /// `pages` walks back through the channel with `?before=<oldest id>`, which
+    /// is how the web preview paginates: each page is about twenty posts, so
+    /// `pages: 5` covers a hundred.
+    static func entries(channel: String, pages: Int = 1)
+        async throws -> (name: String, entries: [MarketEntry]) {
         var request = URLRequest(url: URL(string: "https://t.me/s/\(channel)")!)
         request.timeoutInterval = 25
         // The preview varies by user agent; a desktop browser gets the rich one.
@@ -75,8 +80,23 @@ enum TelegramSource {
             ?? "@\(channel)"
         var entries: [MarketEntry] = []
         var seen = Set<String>()
+        var firstPage = posts(in: html)
 
-        for post in posts(in: html) {
+        // Further pages, until the requested depth or the channel runs out.
+        var collected = firstPage
+        var oldest = firstPage.compactMap { Int($0.id) }.min()
+        for _ in 1..<max(1, pages) {
+            guard let before = oldest else { break }
+            guard let next = try? await page(channel: channel, before: before),
+                  !next.isEmpty else { break }
+            let fresh = next.filter { post in !collected.contains { $0.id == post.id } }
+            guard !fresh.isEmpty else { break }
+            collected += fresh
+            oldest = fresh.compactMap { Int($0.id) }.min() ?? oldest
+        }
+        firstPage = collected
+
+        for post in firstPage {
             // A post's own links win: a direct .ipa downloads here, the rest
             // open in Telegram.
             let direct = post.links.first { $0.pathExtension.lowercased() == "ipa" }
@@ -141,9 +161,23 @@ enum TelegramSource {
         return (title, entries)
     }
 
+    /// One page of the preview, optionally ending before a message id.
+    private static func page(channel: String, before: Int? = nil) async throws -> [Post] {
+        var link = "https://t.me/s/\(channel)"
+        if let before { link += "?before=\(before)" }
+        guard let url = URL(string: link) else { return [] }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 25
+        request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
+                         + "(KHTML, like Gecko) Version/17.0 Safari/605.1.15",
+                         forHTTPHeaderField: "User-Agent")
+        guard let (data, _) = try? await URLSession.shared.data(for: request) else { return [] }
+        return posts(in: String(decoding: data, as: UTF8.self))
+    }
+
     // MARK: - The preview's markup
 
-    private struct Post {
+    struct Post {
         let id: String
         let date: Date?
         let text: String?

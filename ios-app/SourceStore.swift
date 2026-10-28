@@ -315,6 +315,11 @@ final class SourceStore: ObservableObject {
             trimmed = inner
         }
         let lowered = trimmed.lowercased()
+        // A local file is a source too: that's what the Telegram studio writes,
+        // and it lets a generated list be browsed like any other.
+        if lowered.hasPrefix("file://"), let url = URL(string: trimmed) {
+            return FileManager.default.fileExists(atPath: url.path) ? url : nil
+        }
         let hadScheme = lowered.hasPrefix("http://") || lowered.hasPrefix("https://")
         if !hadScheme {
             guard !trimmed.contains("://") else { return nil }
@@ -335,6 +340,14 @@ final class SourceStore: ObservableObject {
     /// A conditional GET: the cached `ETag` goes back as `If-None-Match`, and
     /// most source hosts answer 304 with no body at all.
     nonisolated static func fetchDocument(_ url: URL, etag: String?) async throws -> Document {
+        // A `file://` source is read from disk; there's nothing conditional
+        // about it, and it changes whenever the app regenerates it.
+        if url.isFileURL {
+            guard let data = try? Data(contentsOf: url), !data.isEmpty else {
+                throw SourceError.notASource
+            }
+            return .document(data, etag: nil)
+        }
         var request = URLRequest(url: url)
         request.timeoutInterval = 25
         request.setValue("application/json", forHTTPHeaderField: "Accept")

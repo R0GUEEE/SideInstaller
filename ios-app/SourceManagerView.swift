@@ -27,12 +27,14 @@ struct SourceManagerView: View {
     @State private var pendingRemove: SourceStore.Loaded?
     @State private var showImporter = false
     @State private var showMarket = false
+    @State private var showTelegram = false
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 LazyVStack(spacing: 18) {
                     marketCard
+                    telegramCard
                     bulkCard
                     listCard
                     exportCard
@@ -59,6 +61,9 @@ struct SourceManagerView: View {
                 Button(L("Cancel"), role: .cancel) { pendingRemove = nil }
             } message: { loaded in
                 Text(L("Its %ld apps leave the marketplace. The source itself isn't changed, and adding it again restores them.", loaded.appCount))
+            }
+            .sheet(isPresented: $showTelegram) {
+                TelegramStudioView().environmentObject(loc)
             }
             .sheet(isPresented: $showMarket) {
                 RepositoryMarketView(store: store)
@@ -98,6 +103,37 @@ struct SourceManagerView: View {
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.primary)
                     Text(L("Popular sources to add in one tap"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 4)
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .buttonStyle(.plain)
+        .cardSurface(in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    /// Telegram channels: scan them, then turn the result into a source.
+    private var telegramCard: some View {
+        Button {
+            showTelegram = true
+        } label: {
+            HStack(spacing: 14) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.brand)
+                    Image(systemName: "paperplane.fill")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+                .frame(width: 46, height: 46)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(L("Telegram channels"))
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text(L("Scan channels and generate a source from them"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
