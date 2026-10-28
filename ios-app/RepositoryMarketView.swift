@@ -19,7 +19,10 @@ struct RepositoryDirectory {
         let category: String
 
         var id: String { url }
-        var icon: URL? { URL(string: url)?.host.map { "https://\($0)/favicon.ico" } }
+        var icon: URL? {
+            guard let host = URL(string: url)?.host else { return nil }
+            return URL(string: "https://\(host)/favicon.ico")
+        }
     }
 
     static var all: [Entry] { [
