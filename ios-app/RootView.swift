@@ -548,6 +548,20 @@ struct ToolsView: View {
                     }
                     .buttonStyle(.plain)
                     .cascadeItem(rowIndex(5))
+                    NavigationLink {
+                        IPACacheView()
+                    } label: {
+                        ToolRow(icon: "internaldrive.fill", title: L("Stored builds"))
+                    }
+                    .buttonStyle(.plain)
+                    .cascadeItem(rowIndex(6))
+                    NavigationLink {
+                        DeviceInfoView()
+                    } label: {
+                        ToolRow(icon: "iphone.gen3", title: L("Device"))
+                    }
+                    .buttonStyle(.plain)
+                    .cascadeItem(rowIndex(7))
                 }
                 // No bottom padding: the tab bar's inset already clears the last
                 // row, and the extra 20pt would make a page that fits scroll.

@@ -717,6 +717,9 @@ final class Engine: ObservableObject {
                 let staged = await prestage?.value
                 try Task.checkCancellation()
                 try await install(prestaged: staged)
+                // Keep the build so this app can be re-signed later, whichever
+                // of its sources has gone missing by then.
+                cacheInstalledIPA()
                 try await writePairing(accountConfig: accountConfig, prepared: prepared)
                 finishSuccess()
                 outcome = .installed
@@ -2067,6 +2070,37 @@ final class Engine: ObservableObject {
         if outcome.applied.isEmpty, outcome.warnings.isEmpty {
             log("  Nothing to change: this build already carries it.")
         }
+    }
+
+    /// Copies the IPA this run installed into the cache, keyed by the app's
+    /// bundle ID. Best-effort: a failure is logged and the install stands.
+    @MainActor
+    private func cacheInstalledIPA() {
+        guard let ipa = downloadedIPAPath else { return }
+        let url = URL(fileURLWithPath: ipa)
+        guard let info = IPALibrary.appInfo(at: url) else { return }
+        IPACache.store(url, bundleID: info.bundleID,
+                       displayName: signedDisplayName ?? info.name)
+        IPACache.prune()
+    }
+
+    /// Model, iOS build and UDID as lockdown reports them, for the Device page.
+    struct DeviceDetail {
+        let name: String?
+        let model: String?
+        let build: String?
+        let udid: String?
+    }
+
+    @MainActor
+    func readDeviceDetail() async throws -> DeviceDetail {
+        try await ensurePairingConnection()
+        let pairs = try await onDeviceQueue { try self.connection.deviceInfo() }
+        let info = Dictionary(pairs, uniquingKeysWith: { first, _ in first })
+        return DeviceDetail(name: info["DeviceName"],
+                            model: info["ProductType"] ?? info["HardwareModel"],
+                            build: info["BuildVersion"],
+                            udid: info["UniqueDeviceID"] ?? deviceUDID)
     }
 
     /// True when the IPA at `ipaPath` is Madeira, whichever way it got here: the
@@ -3539,6 +3573,11 @@ final class Engine: ObservableObject {
         let udid = deviceUDID ?? ""
         let device = deviceName ?? ""
         log("=== Refreshing \(name) from \((ipaPath as NSString).lastPathComponent) ===")
+        // A refresh's source is the best copy there is; keep it.
+        if let info = IPALibrary.appInfo(at: URL(fileURLWithPath: ipaPath)) {
+            IPACache.store(URL(fileURLWithPath: ipaPath), bundleID: info.bundleID,
+                           displayName: name)
+        }
         let path = pairingFilePath ?? PairingController.pairingFilePath()
         let signed: String
         do {

@@ -1052,7 +1052,15 @@ enum IPALibrary {
                          version: isManaged
                              ? kind.source.version(inFileName: name, channel: kind.channel) : nil)
         }
-        return (entries + [customImport()].compactMap { $0 })
+        // Every build SideInstaller installed keeps a copy for re-signing; those
+        // count as installable too, which is what lets My Apps re-sign an app
+        // whose original download is long gone.
+        let cached = IPACache.all().map { entry in
+            Entry(source: .custom, channel: .stable, url: entry.url,
+                  size: Int(entry.bytes), modified: entry.savedAt,
+                  isImported: true, version: nil)
+        }
+        return (entries + cached + [customImport()].compactMap { $0 })
             .sorted { ($0.modified ?? .distantPast) > ($1.modified ?? .distantPast) }
     }
 
