@@ -209,8 +209,10 @@ extension AppSettings {
             UserDefaults.standard.set(newValue, forKey: "appSettings.autoResignEnabled")
             objectWillChange.send()
             if newValue {
-                AutoResign.shared.schedule()
-                Task { _ = await AutoResign.requestAuthorization() }
+                Task { @MainActor in
+                    AutoResign.shared.schedule()
+                    _ = await AutoResign.requestAuthorization()
+                }
             }
         }
     }
