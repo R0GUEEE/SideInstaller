@@ -1453,3 +1453,21 @@ Two features added on top of the install pipeline: browsing AltStore sources, an
   vendored samples of the shapes no live fetch guarantees (Scarlet's category map, GBox metadata, an
   E-Sign array), failing if any app comes back without a release.
 
+### Telegram channels as a source
+
+- **What's reachable.** Telegram has no unauthenticated API for reading a channel, but it publishes
+  an HTML preview at `t.me/s/<channel>`. That page carries each post's text, the attached document's
+  **name and size**, and the post permalink. It does **not** carry a file URL: Telegram mints those
+  per client session and they expire, so no amount of scraping produces one.
+- **So the entry is honest.** `MarketEntry.Version` gained `direct`. A Telegram release has
+  `direct: false` and its URL is the permalink; the install button opens it in Telegram (iOS hands
+  `https://t.me/...` to the app when installed). A post whose text links a direct `.ipa` also gets a
+  `direct: true` release, and that one installs through the normal pipeline — some channels mirror
+  their files, and this picks that up for free.
+- **Reading it**: blocks are split on `tgme_widget_message_wrap`, the id comes from `data-post`, the
+  document from `tgme_widget_message_document_title`/`_extra` (name and "2 GB"), the date from
+  `<time datetime>`. Entities are decoded and tags stripped; sizes parsed from the text form.
+- **Limits**: public channels only, recent posts only (Telegram paginates the preview), and a
+  channel with previews disabled returns no posts — each of those gets its own message rather than
+  an empty source.
+

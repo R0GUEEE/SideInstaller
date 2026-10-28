@@ -5,6 +5,13 @@ All notable changes to SideInstaller are documented here.
 ## Unreleased
 
 ### Added
+- **Telegram channels as sources.** Add `t.me/<channel>` under Sources and its `.ipa` posts appear in
+  the marketplace beside everything else, with the file's name, size and date. Telegram mints file
+  links per session, so its install button opens the post in Telegram — the only way to get the file
+  — while a post that links a direct `.ipa` installs normally like any other source. Only a public
+  channel's recent posts are readable; private channels have no preview.
+
+### Added
 - **Any repository format.** `SourceParser` reads AltStore / SideStore / AltStore PAL / SpotC,
   GBox, Scarlet (both the store shape and its category map), and bare E-Sign / Feather-style
   arrays, with aliases for the fields they name differently (`bundleID`, `down`, `icon`, `dev`,
