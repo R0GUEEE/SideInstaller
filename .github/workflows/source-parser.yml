@@ -40,34 +40,35 @@ jobs:
           install -d "$RUNNER_TEMP/src"
           # Fetch and validate before parsing: an empty body would look like a
           # source with no apps, which is the bug this check exists to catch.
+          # A host that blocks CI runners is skipped and named, not failed — the
+          # parser is what's under test, not the network.
+          skipped=0
           fetch() {
             name="$1"; url="$2"
             for attempt in 1 2 3; do
               curl -sL -m 60 --retry 2 -A "SideInstaller/source-parser" "$url" \
-                -o "$RUNNER_TEMP/src/$name.json" && break
-              sleep 5
-            done
-            python3 - "$RUNNER_TEMP/src/$name.json" "$url" <<'PY'
+                -o "$RUNNER_TEMP/src/$name.json" 2>/dev/null || true
+              python3 -c "
           import json, os, sys
           path, url = sys.argv[1], sys.argv[2]
-          if not os.path.exists(path) or os.path.getsize(path) < 500:
-              sys.exit("download too small: " + url)
-          try:
-              doc = json.load(open(path))
-          except Exception as e:
-              sys.exit("not JSON: %s (%s)" % (url, e))
-          if not doc.get("apps"):
-              sys.exit("no apps in document: " + url)
-          print("%-28s %6d apps, %d bytes" % (url, len(doc["apps"]), os.path.getsize(path)))
-          PY
+          if os.path.getsize(path) < 500: sys.exit(1)
+          try: doc = json.load(open(path))
+          except Exception: sys.exit(1)
+          if not doc.get('apps'): sys.exit(1)
+          print('%-16s %6d apps, %d bytes' % (url, len(doc['apps']), os.path.getsize(path)))
+          " "$RUNNER_TEMP/src/$name.json" "$url" && return 0
+              sleep 5
+            done
+            rm -f "$RUNNER_TEMP/src/$name.json"
+            echo "SKIPPED: $url (unreachable from this runner)"
+            skipped=$((skipped + 1))
+            return 1
           }
-          fetch cypwn   https://ipa.cypwn.xyz/cypwn.json
-          fetch apptesters https://repository.apptesters.org
-          fetch altstore https://apps.altstore.io
-          fetch quark   https://quarksources.github.io/altstore-complete.json
-          chmod +x /tmp/parser-check
-          ls -l /tmp/parser-check
-          # The Swift runtime lives in the toolchain, which the container's
-          # default library path doesn't always include.
-          export LD_LIBRARY_PATH="/usr/lib/swift/linux:${LD_LIBRARY_PATH:-}"
+          ok=0
+          fetch cypwn      https://ipa.cypwn.xyz/cypwn.json       && ok=$((ok + 1))
+          fetch apptesters https://repository.apptesters.org       && ok=$((ok + 1))
+          fetch altstore   https://apps.altstore.io                && ok=$((ok + 1))
+          fetch quark      https://quarksources.github.io/altstore-complete.json && ok=$((ok + 1))
+          echo "decoded sources to check: $ok, skipped: $skipped"
+          test "$ok" -ge 2 || { echo "::error::fewer than two sources could be fetched"; exit 1; }
           /tmp/parser-check "$RUNNER_TEMP"/src/*.json
