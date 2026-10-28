@@ -19,10 +19,10 @@ config.displayName = "Renamed App"
 config.version = "9.9"
 config.build = "42"
 config.stripWatchApp = true
-config.tweaks = [AppConfig.Tweak(name: "TestTweak.dylib",
-                                 path: tweak,
-                                 kind: .dylib,
-                                 loadPath: "@executable_path/Frameworks/TestTweak.dylib")]
+config.tweaks = [Tweak(name: "TestTweak.dylib",
+                       path: tweak,
+                       kind: .dylib,
+                       loadPath: "@executable_path/Frameworks/TestTweak.dylib")]
 
 do {
     let outcome = try IPAPatch.apply(config, injectors: [], to: ipa)
