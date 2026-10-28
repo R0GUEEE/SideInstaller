@@ -1622,3 +1622,23 @@ Measured against the live previews:
   log. It never includes an Apple ID or a password, which is why the log is passed through the same
   redactor the problem report uses.
 
+### Bug sweep
+
+Scanned the whole app for the usual defect classes and fixed what turned up:
+
+| Found | Where | Fix |
+|---|---|---|
+| `@Published` mutated off the main actor — `refresh()` ran in whatever context called it | `SourceStore` | every state-touching method is `@MainActor`; the class stays non-isolated so `shared` is readable from a property initializer |
+| Generated source rewritten once per HTTP request | `LocalSourceServer` | five-second cache of the document |
+| `force` accepted and ignored, so a manual refresh still sent `If-None-Match` | `SourceStore.refresh` | force now omits the ETag |
+| A settings toggle had no visible effect until the next catalogue revision | `MarketplaceView` | observes `showNonDirectEntries` |
+| Sign-in inside the per-app loop | `AutoResign` | one `prepareRefresh` before the loop |
+| Results list cleared while a scan was running | `TelegramStudio` | assign once, at the end |
+| Profile matching in a SwiftUI body | `Renewals` settings | computed on appear |
+| `scheduleRefresh()` called from a non-isolated `didSet` | `AppSettings` | hopped to the main actor |
+
+Checked and left alone: the seven `URL(string:)!` sites are all literals (a typo would be caught at
+launch); `LogRedactor`'s one `try!` builds a pattern from escaped literals; no `as!`, no
+`fatalError`; the loopback server and the JIT session both clean up their handles and capture `self`
+weakly in their callbacks.
+

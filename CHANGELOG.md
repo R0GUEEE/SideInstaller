@@ -5,6 +5,27 @@ All notable changes to SideInstaller are documented here.
 ## Unreleased
 
 ### Added
+- **Renewals: re-signing apps before they expire.** Settings › Renewals switches on a background pass
+  (`BGAppRefreshTask`) that finds sideloaded apps whose profile expires within a configurable window
+  (6–72 hours, default 24), re-signs the ones whose `.ipa` is still on the device, and posts a
+  notification with the result. A background pass can't answer a 2FA prompt, so a sign-in that needs
+  a code stops the pass and says to open the app. There's a **Renew expiring apps now** button for
+  the same work on demand.
+
+### Fixed
+- **The source store mutated published state from whatever context called it.** Every method that
+  touches it is now main-actor bound.
+- **The local server rewrote the generated source on every request** — including each page load's
+  JSON fetch. It's cached for five seconds now.
+- **A deliberate refresh ignored its own `force` flag** and still sent `If-None-Match`; it now asks
+  for the body, so Refresh really refetches.
+- **Changing "show entries that open another app" in Settings had no effect** until the next source
+  revision. The marketplace observes it.
+- **A renewal pass signed in once per app**, inside the loop. It signs in once, before it.
+- **A scan blanked the results list while it ran**, and the renewals row did profile matching inside
+  a SwiftUI body. Both fixed.
+
+### Added
 - **Settings, properly.** New sections and screens, all driving real behaviour rather than
   describing it:
   - **Sources & storage › Telegram channels** — use the RSS bridge (off means preview-off channels
