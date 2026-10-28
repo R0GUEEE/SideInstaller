@@ -69,6 +69,9 @@ struct RootView: View {
     @StateObject private var entitlementsManager = EntitlementsManager()
     @StateObject private var appsManager = SideloadedAppsManager()
     @StateObject private var sideBySideManager = SideBySideManager()
+    /// Sources are loaded once here so their list survives tab switches and the
+    /// Inspect page can be opened from a link.
+    @StateObject private var sourceStore = SourceStore()
     /// The last two-factor prompt shown, so the sheet keeps its content while it
     /// slides away after the sign-in clears it.
     @State private var shownTwoFactor: TwoFactorPhase?
@@ -85,7 +88,8 @@ struct RootView: View {
                       locationManager: locationManager,
                       entitlementsManager: entitlementsManager,
                       appsManager: appsManager,
-                      sideBySideManager: sideBySideManager)
+                      sideBySideManager: sideBySideManager,
+                      sourceStore: sourceStore)
                 .tabItem { Label(L("Tools"), systemImage: "wrench.and.screwdriver") }
                 .tag(Page.tools)
             AboutView()
@@ -94,6 +98,11 @@ struct RootView: View {
         }
         // Animate the backdrop to the new tab's level.
         .onChange(of: page) { _, page in Backdrop.settle(on: page.wash) }
+        // A run started from Tools (a source's app, or an inspected .ipa)
+        // belongs on the Install tab, where its progress is drawn.
+        .onChange(of: engine.isRunning) { _, running in
+            if running { page = .install }
+        }
         // A link's install or pairing file ends up on the Install tab, so its
         // popup comes up over that.
         .onChange(of: engine.pendingLink) { _, link in
@@ -464,6 +473,8 @@ enum ToolPopup: Hashable {
 struct ToolsView: View {
     /// Observed so labels redraw when the language changes.
     @EnvironmentObject private var loc: Localizer
+    /// Watched for a `sideinstaller://source` link, which opens the add sheet.
+    @EnvironmentObject private var engine: Engine
     /// Passed in (owned by `RootView`) so pages keep their state across tabs.
     @ObservedObject var pairingManager: PairingManager
     @ObservedObject var certManager: CertManager
@@ -471,6 +482,7 @@ struct ToolsView: View {
     @ObservedObject var entitlementsManager: EntitlementsManager
     @ObservedObject var appsManager: SideloadedAppsManager
     @ObservedObject var sideBySideManager: SideBySideManager
+    @ObservedObject var sourceStore: SourceStore
 
     @State private var showSettings = false
 
@@ -527,6 +539,20 @@ struct ToolsView: View {
                     }
                     .buttonStyle(.plain)
                     .cascadeItem(rowIndex(5))
+                    NavigationLink {
+                        SourcesView(store: sourceStore)
+                    } label: {
+                        ToolRow(icon: "shippingbox.fill", title: L("Sources"))
+                    }
+                    .buttonStyle(.plain)
+                    .cascadeItem(rowIndex(6))
+                    NavigationLink {
+                        IPAInspectorView()
+                    } label: {
+                        ToolRow(icon: "doc.text.magnifyingglass", title: L("Inspect .ipa"))
+                    }
+                    .buttonStyle(.plain)
+                    .cascadeItem(rowIndex(7))
                 }
                 // No bottom padding: the tab bar's inset already clears the last
                 // row, and the extra 20pt would make a page that fits scroll.
@@ -540,6 +566,12 @@ struct ToolsView: View {
             .background(AppBackground())
             .toolbar { settingsToolbarItem(isPresented: $showSettings) }
             .sheet(isPresented: $showSettings) { SettingsView() }
+            // A link's source arrives here, prefilled and ready to add.
+            .sheet(isPresented: Binding(get: { engine.sourceToAdd != nil },
+                                        set: { if !$0 { engine.sourceToAdd = nil } })) {
+                AddSourceSheet(store: sourceStore,
+                               prefilled: engine.sourceToAdd?.absoluteString ?? "")
+            }
         }
     }
 

@@ -447,6 +447,9 @@ final class Engine: ObservableObject {
     private var appIDCostReply: CheckedContinuation<Bool, Never>?
     /// The `sideinstaller://` link waiting for the go-ahead.
     @Published private(set) var pendingLink: DeepLink?
+    /// A source a `sideinstaller://source` link brought, waiting for the
+    /// Sources page to open its add sheet with it.
+    @Published var sourceToAdd: URL?
     /// When SideStore was last asked for its pairing file, so the file it sends
     /// back can be told from one some other link brought.
     private var sideStorePairingRequestedAt: Date?
@@ -2959,6 +2962,13 @@ final class Engine: ObservableObject {
             // A run's own popups come first; the log keeps the reason.
             if !isRunning { lastError = message }
         case .link(let link):
+            // A source has nothing to confirm: adding it only writes down a
+            // URL, and the page it opens shows what came back.
+            if case .source(let url) = link {
+                sourceToAdd = url
+                log("Link: \(link.logDescription).")
+                return
+            }
             if case .pairingFile = link { sideStorePairingRequestedAt = nil }
             if case .certificate(let cert) = link, cert.fromSideStore {
                 let retryInstall = sideStoreCertificateRequest?.retryInstall ?? false
@@ -2995,6 +3005,9 @@ final class Engine: ObservableObject {
             }
         case .certificate(let cert):
             certificateToImport = CertificateImport(certificate: cert, retryInstall: false)
+        case .source(let url):
+            // Never reached: a source link is acted on in `receiveLink`.
+            sourceToAdd = url
         }
     }
 
@@ -3010,7 +3023,48 @@ final class Engine: ObservableObject {
             // Installs only what the link brought: a failed download leaves
             // its error up instead of installing the previous import.
             guard await self.importCustomIPA(fromLink: url.absoluteString) else { return }
+            // The download is on disk and it's this app's job to say no to a
+            // build that can't work — an encrypted App Store copy, say —
+            // before signing registers an App ID for it.
+            if let report = await Self.inspectCustomImport() {
+                let blockers = report.issues.filter { $0.severity == .blocker }
+                if let blocker = blockers.first {
+                    self.lastError = ErrorHelp.explained(L("%@: %@", blocker.title, blocker.detail))
+                    self.log("⛔️ Not installing \(report.fileName): \(blocker.title.lowercased()). Inspect .ipa has the details.")
+                    for extra in blockers.dropFirst() {
+                        self.log("   also: \(extra.title) — \(extra.detail)")
+                    }
+                    return
+                }
+            }
             self.runOneClick()
+        }
+    }
+
+    /// Reads the IPA in the custom slot for its pre-install report, off the
+    /// main actor since it walks the archive. Nil when there's nothing to read.
+    nonisolated static func inspectCustomImport() async -> IPAReport? {
+        guard let url = IPALibrary.customImport()?.url else { return nil }
+        return await Task.detached(priority: .userInitiated) {
+            IPAInspector.inspect(url)
+        }.value
+    }
+
+    /// Copies an `.ipa` already on disk (picked, inspected, or dropped in by
+    /// another app) into the custom slot and installs it, signed with the Apple
+    /// ID's certificate. Used by the Inspect page's Install button and by a
+    /// source's app page.
+    @MainActor
+    func installLocalIPA(at url: URL, then run: Bool = true) {
+        guard !isRunning, !isImportingIPA else { return }
+        lastError = nil
+        installSource = .custom
+        Task { @MainActor in
+            await self.importCustomIPA(from: url)
+            // A failed import leaves its reason up instead of installing the
+            // build that was already there.
+            guard self.lastError == nil, self.customIPAName != nil else { return }
+            if run { self.runOneClick() }
         }
     }
 

@@ -1226,6 +1226,10 @@ struct InstallPopup: View {
                     linkButtons(L("Import"), systemImage: "square.and.arrow.down.fill")
                 }
             }
+        case .source:
+            // A source link is added straight away (see `receiveLink`), so this
+            // popup never comes up for one.
+            EmptyView()
         case .certificate:
             // Only an unasked-for one asks here; SideStore's reply is imported
             // straight away.
