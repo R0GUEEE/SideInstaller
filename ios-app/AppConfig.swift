@@ -140,6 +140,20 @@ struct PlistEdit: Codable, Identifiable, Equatable {
 /// declares, and the tweaks loaded into it.
 struct AppConfig: Codable, Equatable {
 
+    /// The four identity fields, which follow the build unless overridden.
+    enum IdentityField: String, CaseIterable, Codable {
+        case bundleIdentifier, displayName, version, build
+
+        var title: String {
+            switch self {
+            case .bundleIdentifier: return L("Bundle ID")
+            case .displayName:      return L("Display name")
+            case .version:          return L("Version")
+            case .build:            return L("Build")
+            }
+        }
+    }
+
     /// New `CFBundleIdentifier`. Extensions and watch apps are re-prefixed.
     var bundleIdentifier = ""
     var displayName = ""
@@ -155,9 +169,43 @@ struct AppConfig: Codable, Equatable {
     var stripExtensions = false
     var stripWatchApp = false
     var tweaks: [Tweak] = []
+    /// The identity fields the user set themselves. The others always show —
+    /// and apply — whatever the build being installed says, so importing another
+    /// app never carries the last one's name and version along.
+    var pinnedIdentity: [String] = []
     /// Bumped when the shape changes, so old saved configurations are ignored
     /// rather than decoded wrong.
-    var schema = 2
+    var schema = 3
+
+    func isPinned(_ field: IdentityField) -> Bool {
+        pinnedIdentity.contains(field.rawValue)
+    }
+
+    mutating func setPinned(_ field: IdentityField, _ pinned: Bool) {
+        var set = Set(pinnedIdentity)
+        if pinned { set.insert(field.rawValue) } else { set.remove(field.rawValue) }
+        pinnedIdentity = Array(set).sorted()
+    }
+
+    /// The identity field's value, for the key path the editor writes through.
+    subscript(field: IdentityField) -> String {
+        get {
+            switch field {
+            case .bundleIdentifier: return bundleIdentifier
+            case .displayName:      return displayName
+            case .version:          return version
+            case .build:            return build
+            }
+        }
+        set {
+            switch field {
+            case .bundleIdentifier: bundleIdentifier = newValue
+            case .displayName:      displayName = newValue
+            case .version:          version = newValue
+            case .build:            build = newValue
+            }
+        }
+    }
 
     var isActive: Bool {
         !bundleIdentifier.trimmed.isEmpty || !displayName.trimmed.isEmpty
@@ -209,7 +257,7 @@ final class AppConfigStore: ObservableObject {
     /// What a framework's download is doing, per kind: shown beside its row.
     @Published private(set) var injectorStatus: [TweakInjectorKind: String] = [:]
 
-    private static let defaultsKey = "appConfig.v2"
+    private static let defaultsKey = "appConfig.v3"
     private static let injectorsKey = "appConfig.injectors.v1"
 
     private init() {
@@ -291,6 +339,12 @@ final class AppConfigStore: ObservableObject {
             }
         }
         return (added, failed)
+    }
+
+    func isPinned(_ field: AppConfig.IdentityField) -> Bool { config.isPinned(field) }
+
+    func pin(_ field: AppConfig.IdentityField, _ pinned: Bool) {
+        config.setPinned(field, pinned)
     }
 
     func removeTweak(_ id: UUID) {
@@ -399,7 +453,7 @@ final class AppConfigStore: ObservableObject {
     @discardableResult
     func importData(_ data: Data) -> Bool {
         guard let decoded = try? JSONDecoder().decode(AppConfig.self, from: data),
-              decoded.schema == 2 else { return false }
+              decoded.schema == 3 else { return false }
         config = decoded
         Self.forgetMissingFiles(in: &config, injectors: &injectors)
         return true

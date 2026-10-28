@@ -33,6 +33,9 @@ struct AppConfigView: View {
     /// What the imported archive says, read once when the page opens.
     @State private var snapshot = Snapshot()
     @State private var isLoading = false
+    /// True while the build's own values are being written into the fields, so
+    /// that isn't mistaken for the user typing.
+    @State private var applyingSnapshot = false
 
     /// The plain `.ipa` as it was imported, for the "in the build" lists.
     struct Snapshot {
@@ -150,28 +153,29 @@ struct AppConfigView: View {
             return result
         }.value
         isLoading = false
-        let previous = snapshot
         snapshot = read
         guard !read.missing else { return }
-        // A field is filled from the build when it's empty, or when it still
-        // holds the value the *previous* build gave it: that's a leftover, not
-        // an edit, and leaving it would describe the wrong app.
-        func adopt(_ current: String, old: String, new: String) -> String? {
-            if current.trimmed.isEmpty { return new }
-            if !old.isEmpty, current.trimmed == old.trimmed, new != current { return new }
-            return nil
-        }
-        if let value = adopt(store.config.bundleIdentifier, old: previous.bundleID, new: read.bundleID) {
-            store.config.bundleIdentifier = value
-        }
-        if let value = adopt(store.config.displayName, old: previous.name, new: read.name) {
-            store.config.displayName = value
-        }
-        if let value = adopt(store.config.version, old: previous.version, new: read.version) {
-            store.config.version = value
-        }
-        if let value = adopt(store.config.build, old: previous.build, new: read.build) {
-            store.config.build = value
+        applyIdentity(from: read)
+    }
+
+    /// Copies the build's identity into every field the user hasn't claimed.
+    ///
+    /// A pinned field is the user's own value — a rename, a second copy under
+    /// another bundle ID — and is left alone. Everything else follows the build,
+    /// so importing a different .ipa always shows that app's name and version
+    /// rather than whatever the last one left behind.
+    private func applyIdentity(from build: Snapshot) {
+        applyingSnapshot = true
+        defer { applyingSnapshot = false }
+        for field in AppConfig.IdentityField.allCases where !store.isPinned(field) {
+            let value: String
+            switch field {
+            case .bundleIdentifier: value = build.bundleID
+            case .displayName:      value = build.name
+            case .version:          value = build.version
+            case .build:            value = build.build
+            }
+            if store.config[field] != value { store.config[field] = value }
         }
     }
 
@@ -231,21 +235,92 @@ struct AppConfigView: View {
                     }
                     .buttonStyle(.borderless)
                 }
-                field(L("Bundle ID"), hint: snapshot.bundleID.isEmpty ? "com.example.app" : snapshot.bundleID,
-                      text: $store.config.bundleIdentifier)
+
+                Text(snapshot.missing
+                     ? L("Import a build and its identity appears here.")
+                     : L("These come from %@. Change one and it becomes yours; the rest keep following the build.", snapshot.fileName))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                identityField(.bundleIdentifier, hint: "com.example.app", monospaced: true)
                 Text(L("A new bundle ID installs alongside the original and registers its own App ID, which a free Apple ID has few of. Extensions are renamed to sit under it."))
                     .font(.caption)
                     .foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
-                field(L("Display name"), hint: snapshot.name.isEmpty ? L("Name on the Home Screen") : snapshot.name,
-                      text: $store.config.displayName)
+
+                identityField(.displayName, hint: L("Name on the Home Screen"))
                 HStack(spacing: 12) {
-                    field(L("Version"), hint: snapshot.version.isEmpty ? "1.0" : snapshot.version,
-                          text: $store.config.version)
-                    field(L("Build"), hint: snapshot.build.isEmpty ? "1" : snapshot.build,
-                          text: $store.config.build)
+                    identityField(.version, hint: "1.0")
+                    identityField(.build, hint: "1")
+                }
+
+                if !store.config.pinnedIdentity.isEmpty {
+                    Button {
+                        for field in AppConfig.IdentityField.allCases { store.pin(field, false) }
+                        applyIdentity(from: snapshot)
+                        note = L("Identity reset to the build's own values.")
+                    } label: {
+                        Label(L("Use the build's values"), systemImage: "arrow.uturn.backward")
+                            .font(.footnote.weight(.semibold))
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
                 }
             }
+        }
+    }
+
+    /// One identity field. Typing pins it; the arrow restores the build's value.
+    private func identityField(_ field: AppConfig.IdentityField, hint: String,
+                               monospaced: Bool = false) -> some View {
+        let pinned = store.isPinned(field)
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Text(field.title)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                if pinned {
+                    Text(L("yours"))
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(Theme.accent2)
+                }
+                Spacer(minLength: 0)
+                if pinned {
+                    Button {
+                        store.pin(field, false)
+                        applyIdentity(from: snapshot)
+                    } label: {
+                        Image(systemName: "arrow.uturn.backward.circle")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.borderless)
+                }
+            }
+            TextField(hint, text: Binding(
+                get: { store.config[field] },
+                set: { value in
+                    store.config[field] = value
+                    // Only a real edit pins it; the build's own values are
+                    // written with `applyingSnapshot` up.
+                    if !applyingSnapshot, value != buildValue(field) {
+                        store.pin(field, true)
+                    }
+                }))
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .font(monospaced ? .subheadline.monospaced() : .subheadline)
+                .fieldBackground()
+        }
+    }
+
+    private func buildValue(_ field: AppConfig.IdentityField) -> String {
+        switch field {
+        case .bundleIdentifier: return snapshot.bundleID
+        case .displayName:      return snapshot.name
+        case .version:          return snapshot.version
+        case .build:            return snapshot.build
         }
     }
 
@@ -616,31 +691,6 @@ struct AppConfigView: View {
         Label(title, systemImage: systemImage)
             .font(.subheadline.weight(.semibold))
             .foregroundStyle(.secondary)
-    }
-
-    /// One text field with a clear button, styled like the app's other fields.
-    private func field(_ label: String, hint: String, text: Binding<String>) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(label)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-            HStack(spacing: 8) {
-                TextField(hint, text: text)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .font(.subheadline)
-                if !text.wrappedValue.isEmpty {
-                    Button {
-                        text.wrappedValue = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.tertiary)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .fieldBackground()
-        }
     }
 
     private func share(_ url: URL) {
