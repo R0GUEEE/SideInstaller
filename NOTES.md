@@ -1297,3 +1297,22 @@ Two features added on top of the install pipeline: browsing AltStore sources, an
   re-reads when the Install tab's build changes, and replaces identity values that were carried
   over from the previous build rather than treating them as user edits.
 
+### Menu loading: the three hot spots
+
+- **Quadratic catalogue build.** Merging releases into one entry per app also needed to know
+  *which* source carried each release, and the first version asked that by scanning every app of
+  every source for a matching release — O(releases × apps). On AppTesters' ~9,900 apps that is tens
+  of millions of comparisons per refresh. Indexing `releaseID → source` while walking each source
+  makes it one pass.
+- **Per-row scans in My Apps.** `refreshable.first(where:)` and a "newest release in any source"
+  lookup ran inside the row body, i.e. for every row on every layout pass. Both are now
+  dictionaries built when the data changes (`jobsByBundle`, `updateCandidates`), so a row is a
+  lookup.
+- **Icon fetching.** Each icon was a separate `engine.appIcon` call: connect `app_service`,
+  handshake, fetch, close. Twenty apps meant twenty round trips before the list stopped showing
+  placeholders. The batch method opens one connection for forty, and the disk cache answers first.
+- **Filtering in `body`.** `visible` recomputed the filter, the search and the sort on every pass,
+  including while scrolling. It's now a `@State` array refreshed by `onChange` of the filter,
+  query, sort and catalogue revision — the same pattern as the source list, which is the lesson
+  from the earlier freeze.
+

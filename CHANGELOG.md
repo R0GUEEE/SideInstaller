@@ -4,6 +4,17 @@ All notable changes to SideInstaller are documented here.
 
 ## Unreleased
 
+### Changed
+- **Menus load faster**, in three places that were doing far more work than the screen needed:
+  - *Marketplace* built its catalogue with a scan per release — quadratic, and a ten-thousand-app
+    repository stalled it. The release→source mapping is now indexed in the same pass, the rail's
+    counts are computed once instead of filtered per row, and the visible list is filtered and
+    sorted when the filter, the search field or the sort changes rather than on every layout pass.
+  - *My Apps* looked up each row's refresh job and its newest release by walking every source and
+    every installed app, per row, per pass. Both are indexed by bundle ID when the data changes.
+  - *App icons* are read from the disk cache first, then fetched over one `app_service` connection
+    per forty apps, instead of a fresh connection and handshake for every icon.
+
 ### Added
 - **Launch with JIT.** My Apps can start an app under the device's debugger: the app is launched
   suspended through DVT process control, the debugger attaches over RSD (which is what grants the
