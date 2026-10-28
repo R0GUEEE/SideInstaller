@@ -207,7 +207,7 @@ struct MarketplaceView: View {
                            count: catalog.count)
                 if !featuredIDs.isEmpty {
                     railButton(.featured, title: L("Featured"), icon: "star.fill",
-                               count: catalog.filter { featuredIDs.contains($0.app.bundleIdentifier ?? "") }.count)
+                               count: catalog.filter { featuredIDs.contains($0.key) }.count)
                 }
 
                 let categories = presentCategories
@@ -219,7 +219,7 @@ struct MarketplaceView: View {
                         .padding(.top, 12)
                     ForEach(categories) { category in
                         railButton(.category(category.id), title: category.title, icon: category.icon,
-                                   count: catalog.filter { MarketCategory.of($0.app.category) == category }.count)
+                                   count: catalog.filter { $0.category == category }.count)
                     }
                 }
 
