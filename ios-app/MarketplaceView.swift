@@ -60,6 +60,8 @@ struct MarketCategory: Identifiable, Hashable {
 /// menu and the grid is the store itself.
 struct MarketplaceView: View {
     @EnvironmentObject private var engine: Engine
+    /// Watched so a change in Settings updates the list immediately.
+    @ObservedObject private var settings = AppSettings.shared
     @EnvironmentObject private var loc: Localizer
     @ObservedObject var store: SourceStore
 
@@ -148,6 +150,8 @@ struct MarketplaceView: View {
                 AppSettings.shared.marketplaceSort = sort.rawValue
                 refreshVisible()
             }
+            // Changing the setting in Settings must show up here straight away.
+            .onChange(of: settings.showNonDirectEntries) { _, _ in refreshVisible() }
             // An install takes over the Install tab, so the app's page closes
             // itself rather than sitting over the run's progress.
             .onChange(of: engine.isRunning) { _, running in

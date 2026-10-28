@@ -42,6 +42,11 @@ final class LocalSourceServer: ObservableObject {
 
     private var listener: NWListener?
     private var connections: [ObjectIdentifier: NWConnection] = [:]
+    /// The document last served, and when. Regenerating it writes a file, which
+    /// shouldn't happen once per request — a page load fetches it and the HTML
+    /// beside it.
+    private var cachedDocument: (data: Data, at: Date)?
+    private static let documentLifetime: TimeInterval = 5
 
     var url: URL? {
         guard case .running(let port) = state else { return nil }
@@ -197,10 +202,17 @@ final class LocalSourceServer: ObservableObject {
         }
     }
 
-    /// The generated document, rebuilt from the latest scan on each request.
+    /// The generated document: rebuilt when the cached copy is a few seconds
+    /// old, so a burst of requests doesn't rewrite it repeatedly.
     private func sourceDocument() -> Data? {
-        guard let generated = TelegramStudio.shared.generateSource() else { return nil }
-        return try? Data(contentsOf: generated.url)
+        if let cached = cachedDocument,
+           Date().timeIntervalSince(cached.at) < Self.documentLifetime {
+            return cached.data
+        }
+        guard let generated = TelegramStudio.shared.generateSource(),
+              let data = try? Data(contentsOf: generated.url) else { return nil }
+        cachedDocument = (data, Date())
+        return data
     }
 
     private func send(status: Int, type: String, body: Data, on connection: NWConnection) {

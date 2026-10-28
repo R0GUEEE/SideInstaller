@@ -314,6 +314,9 @@ struct RenewalSettingsView: View {
 
     @State private var note: String?
     @State private var isRunning = false
+    /// Worked out when the screen appears: matching profiles is property-list
+    /// parsing, not something to do on every layout pass.
+    @State private var pending = ""
 
     var body: some View {
         Form {
@@ -332,7 +335,7 @@ struct RenewalSettingsView: View {
                         in: 6...72, step: 6) {
                     Text(L("Renew within %ld hours of expiry", settings.autoResignHoursBefore))
                 }
-                LabeledContent(L("Right now"), value: renewals.pendingDescription())
+                LabeledContent(L("Right now"), value: pending)
             } header: {
                 Text(L("Schedule"))
             } footer: {
@@ -370,5 +373,9 @@ struct RenewalSettingsView: View {
         }
         .navigationTitle(L("Renewals"))
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear { pending = renewals.pendingDescription() }
+        .onChange(of: settings.autoResignHoursBefore) { _, _ in
+            pending = renewals.pendingDescription()
+        }
     }
 }

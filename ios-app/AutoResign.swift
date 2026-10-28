@@ -104,6 +104,18 @@ final class AutoResign: ObservableObject {
             return message
         }
 
+        // Signing in is the expensive, prompt-prone part; it belongs once
+        // before the loop, not once per app.
+        do {
+            try await Engine.shared.prepareRefresh(interactive: interactive)
+        } catch {
+            let message = (error as? LocalizedError)?.errorDescription
+                ?? L("Couldn't sign in. Open SideInstaller to finish it.")
+            finish(message)
+            notify(title: L("App renewal"), body: message)
+            return message
+        }
+
         // Only apps whose .ipa is still on the device can be renewed here.
         let library = IPALibrary.installable()
         var renewed: [String] = []
@@ -117,9 +129,6 @@ final class AutoResign: ObservableObject {
                 continue
             }
             do {
-                // A background pass can't put a 2FA sheet on screen, so a
-                // sign-in that needs a code is reported instead of attempted.
-                try await Engine.shared.prepareRefresh(interactive: interactive)
                 try await Engine.shared.refreshInstalledApp(named: status.app.name,
                                                             ipaPath: match.entry.url.path)
                 renewed.append(status.app.name)

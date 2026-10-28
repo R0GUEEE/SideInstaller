@@ -60,6 +60,7 @@ final class SourceStore: ObservableObject {
 
     // MARK: - Loading
 
+    @MainActor
     func load() {
         guard sources.isEmpty else { return }
         let saved = defaults.stringArray(forKey: Self.defaultsKey) ?? []
@@ -80,6 +81,7 @@ final class SourceStore: ObservableObject {
         }
     }
 
+    @MainActor
     private func adopt(_ index: SourceIndex, at position: Int) {
         sources[position].name = index.name
         sources[position].icon = URL(string: index.icon ?? "")
@@ -91,6 +93,7 @@ final class SourceStore: ObservableObject {
     }
 
     /// Fetches the sources that need it: missing, or older than the lifetime.
+    @MainActor
     func refreshAll(force: Bool = true) async {
         let wanted = sources.filter { source in
             guard !source.isLoading else { return false }
@@ -113,6 +116,7 @@ final class SourceStore: ObservableObject {
         merge()
     }
 
+    @MainActor
     func refresh(_ id: String, force: Bool = true) async {
         guard let index = sources.firstIndex(where: { $0.id == id }) else { return }
         sources[index].isLoading = true
@@ -138,7 +142,9 @@ final class SourceStore: ObservableObject {
                                   entries: read.entries), for: id)
             } else {
                 let cached = Self.cachedIndex(for: url)
-                let raw = try await Self.fetchDocument(url, etag: cached?.etag)
+                // A deliberate refresh asks for the body: only the automatic
+                // pass revalidates with the ETag.
+                let raw = try await Self.fetchDocument(url, etag: force ? nil : cached?.etag)
                 switch raw {
                 case .unchanged:
                     // Nothing changed: keep the rows, move the clock so the
@@ -171,6 +177,7 @@ final class SourceStore: ObservableObject {
     }
 
     /// Puts a fresh index in place for one source.
+    @MainActor
     private func store(_ index: SourceIndex, for id: String) {
         guard let at = sources.firstIndex(where: { $0.id == id }) else { return }
         sources[at].name = index.name
@@ -186,6 +193,7 @@ final class SourceStore: ObservableObject {
 
     /// Merges every source's rows into one list: one entry per bundle ID, its
     /// releases from all of them, each tagged with the source that carries it.
+    @MainActor
     private func merge() {
         var merged: [String: MarketEntry] = [:]
         var capacity = 0
@@ -224,6 +232,7 @@ final class SourceStore: ObservableObject {
     }
 
     /// How many apps a source contributes.
+    @MainActor
     func count(for id: String) -> Int {
         indexBySource[id]?.count ?? 0
     }
@@ -231,6 +240,7 @@ final class SourceStore: ObservableObject {
     // MARK: - Adding and removing
 
     @discardableResult
+    @MainActor
     func add(_ text: String, origin: SourceOrigin? = nil) async -> String? {
         guard !isAdding else { return nil }
         guard let url = Self.sourceURL(from: text) else {
@@ -293,6 +303,7 @@ final class SourceStore: ObservableObject {
         }
     }
 
+    @MainActor
     func remove(_ id: String) {
         if let entry = sources.first(where: { $0.id == id }) {
             try? FileManager.default.removeItem(at: Self.indexFile(for: entry.url))
@@ -303,6 +314,7 @@ final class SourceStore: ObservableObject {
         merge()
     }
 
+    @MainActor
     private func saveURLs() {
         defaults.set(sources.map { $0.url.absoluteString }, forKey: Self.defaultsKey)
     }
@@ -424,6 +436,7 @@ final class SourceStore: ObservableObject {
         try? data.write(to: indexFile(for: url), options: .atomic)
     }
 
+    @MainActor
     private func save(_ index: SourceIndex, for url: URL) {
         Self.save(index, for: url)
     }

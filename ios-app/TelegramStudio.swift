@@ -189,7 +189,6 @@ final class TelegramStudio: ObservableObject {
         }
         isScanning = true
         scanNote = nil
-        results = []
         var found: [Result] = []
         for channel in wanted {
             do {
