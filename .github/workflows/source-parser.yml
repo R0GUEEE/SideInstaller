@@ -4,7 +4,8 @@ name: source-parser
 # app is dropped or left without a release. "Empty when filtered" was exactly
 # this: a v1 document whose entries the typed decoder threw away.
 #
-# Needs no Xcode — these models are plain Foundation.
+# Runs the Swift toolchain on Ubuntu: these models are plain Foundation, so
+# they need no Xcode and no macOS queue.
 
 on:
   push:
@@ -20,21 +21,26 @@ permissions:
 jobs:
   parse:
     name: Decode live sources
-    runs-on: macos-latest
-    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    container: swift:6.0-jammy
     steps:
       - uses: actions/checkout@v7
 
       - name: Build the checker
         run: |
           swiftc -O ios-app/AltSource.swift ios-app/SourceKind.swift tools/parser-check/main.swift \
-            -o "$RUNNER_TEMP/parser-check"
+            -o /tmp/parser-check
 
       - name: Decode real sources
+        shell: bash
         run: |
           set -euo pipefail
-          curl -sL -m 60 https://ipa.cypwn.xyz/cypwn.json -o "$RUNNER_TEMP/cypwn.json"
-          curl -sL -m 60 https://repository.apptesters.org -o "$RUNNER_TEMP/apptesters.json"
-          curl -sL -m 60 https://apps.altstore.io -o "$RUNNER_TEMP/altstore.json"
-          curl -sL -m 60 https://quarksources.github.io/altstore-complete.json -o "$RUNNER_TEMP/quark.json"
-          "$RUNNER_TEMP/parser-check" "$RUNNER_TEMP"/*.json
+          install -d "$RUNNER_TEMP/src"
+          for u in https://ipa.cypwn.xyz/cypwn.json https://repository.apptesters.org \
+                   https://apps.altstore.io https://quarksources.github.io/altstore-complete.json; do
+            n=$(basename "$u"); [ "$n" = "apps.altstore.io" ] && n=altstore
+            [ "$n" = "altstore-complete.json" ] || true
+            curl -sL -m 60 "$u" -o "$RUNNER_TEMP/src/$n.json"
+          done
+          /tmp/parser-check "$RUNNER_TEMP"/src/*.json
