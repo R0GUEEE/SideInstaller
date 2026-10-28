@@ -75,7 +75,8 @@ enum TelegramSource {
             var documents = post.documents
             if documents.isEmpty, let direct {
                 // No attachment shown, but the text links an .ipa: list it.
-                documents = [(name: direct.lastPathComponent, size: nil)]
+                documents = [(name: direct.lastPathComponent, size: nil as Int64?,
+                              sizeText: nil as String?)]
             }
             for document in documents {
                 let name = displayName(document.name)
