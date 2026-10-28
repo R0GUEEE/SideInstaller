@@ -834,7 +834,7 @@ final class DeviceConnection {
         defer { process_control_free(control) }
 
         let variables = environment.map { "\($0.key)=\($0.value)" }
-        var pointers: [UnsafePointer<CChar>?] = variables.map { strdup($0) }
+        var pointers: [UnsafePointer<CChar>?] = variables.map { strdup($0).map { UnsafePointer($0) } }
         pointers.append(nil)
         defer { pointers.forEach { $0.map { free(UnsafeMutablePointer(mutating: $0)) } } }
 
@@ -927,7 +927,7 @@ final class DeviceConnection {
     /// `send_command` does: the name verbatim, each argument hex-encoded.
     func sendDebugCommand(_ proxy: OpaquePointer, _ name: String,
                           arguments: [String] = []) throws -> String {
-        var pointers: [UnsafePointer<CChar>?] = arguments.map { strdup($0) }
+        var pointers: [UnsafePointer<CChar>?] = arguments.map { strdup($0).map { UnsafePointer($0) } }
         pointers.append(nil)
         defer { pointers.forEach { $0.map { free(UnsafeMutablePointer(mutating: $0)) } } }
         let command = pointers.withUnsafeBufferPointer { buffer in
