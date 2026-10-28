@@ -13,6 +13,7 @@ struct TelegramStudioView: View {
     @EnvironmentObject private var loc: Localizer
     @ObservedObject private var studio = TelegramStudio.shared
     @ObservedObject private var credentials = TelegramCredentials.shared
+    @ObservedObject private var server = LocalSourceServer.shared
     @Environment(\.dismiss) private var dismiss
 
     @State private var newChannel = ""
@@ -32,6 +33,7 @@ struct TelegramStudioView: View {
                     scanCard
                     exportCard
                     sourceCard
+                    serverCard
                 }
                 .padding(20)
                 .pageColumn()
@@ -374,6 +376,74 @@ struct TelegramStudioView: View {
                 }
             }
         }
+    }
+
+    // MARK: Local server
+
+    /// The source served over loopback, for clients that want a URL.
+    private var serverCard: some View {
+        PanelCard {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Label(L("Local server"), systemImage: "server.rack")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    if case .running(let port) = server.state {
+                        Text(L("127.0.0.1:%ld", port))
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(.green)
+                    }
+                }
+                Text(L("Serves the generated source over loopback, rebuilt on every request, so anything on this iPhone can add it as a URL — SideStore and AltStore included. It stops when SideInstaller leaves the foreground; iOS doesn't keep a socket alive in the background."))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack(spacing: 8) {
+                    Button {
+                        if case .running = server.state { server.stop() } else { server.start() }
+                    } label: {
+                        Label(serverRunning ? L("Stop") : L("Start"),
+                              systemImage: serverRunning ? "stop.circle" : "play.circle")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button {
+                        if let url = server.url { UIPasteboard.general.string = url.absoluteString }
+                    } label: {
+                        Label(L("Copy URL"), systemImage: "doc.on.doc")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(server.url == nil)
+                }
+
+                if let url = server.url {
+                    Text(url.absoluteString)
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                if case .failed(let message) = server.state {
+                    Text(message)
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+                if server.served > 0 {
+                    Text(L("%ld request(s) served.", server.served))
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+        }
+    }
+
+    private var serverRunning: Bool {
+        if case .running = server.state { return true }
+        return false
     }
 
     private func share(_ url: URL) {
