@@ -41,6 +41,8 @@ struct SettingsView: View {
     @State private var confirmEnableDeveloperMode = false
     /// Set while the Report a problem sheet is up.
     @State private var showReport = false
+    /// Set while the app-configuration toolkit is up.
+    @State private var showAppConfig = false
 
     private struct DeveloperModeNote {
         let text: String
@@ -56,6 +58,7 @@ struct SettingsView: View {
                 developerModeSection
                 downloadsSection
                 anisetteSection
+                appConfigSection
                 advancedSection
                 logSection
                 aboutSection
@@ -423,6 +426,31 @@ struct SettingsView: View {
                 }
             }
         )
+    }
+
+    /// The app-configuration toolkit, one tap from Settings as well as from the
+    /// Install screen: identity, Info.plist keys, entitlements, extensions,
+    /// tweaks and injectors, all applied when a custom .ipa is signed.
+    private var appConfigSection: some View {
+        Section {
+            Button {
+                showAppConfig = true
+            } label: {
+                HStack {
+                    Label(L("App configuration"), systemImage: "slider.horizontal.3")
+                    Spacer()
+                    let count = AppConfigStore.shared.config.summary.count
+                    Text(count == 0 ? L("Nothing changed") : L("%d changes", count))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .buttonStyle(.plain)
+        } footer: {
+            Text(L("Applies to the .ipa on the Install tab: rename it, edit its plists and entitlements, drop extensions, and inject tweaks before signing."))
+                .font(.caption2)
+        }
+        .sheet(isPresented: $showAppConfig) { AppConfigView() }
     }
 
     /// The About page, which used to be its own tab: version, credits, the

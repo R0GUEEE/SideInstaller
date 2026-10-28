@@ -36,6 +36,8 @@ struct AppConfigView: View {
     /// True while the build's own values are being written into the fields, so
     /// that isn't mistaken for the user typing.
     @State private var applyingSnapshot = false
+    /// The last comparison with the build.
+    @State private var check: Check?
 
     /// The plain `.ipa` as it was imported, for the "in the build" lists.
     struct Snapshot {
@@ -60,6 +62,7 @@ struct AppConfigView: View {
                     identityCard
                     plistCard
                     entitlementsCard
+                    checkCard
                     extensionsCard
                     tweaksCard
                     backupCard
@@ -452,6 +455,115 @@ struct AppConfigView: View {
         }
     }
 
+    // MARK: Checking the configuration against the build
+
+    /// Compares the configuration with what the build actually says, so an edit
+    /// that changes nothing (or a key the build doesn't have) is visible before
+    /// an install runs rather than after.
+    private var checkCard: some View {
+        PanelCard {
+            VStack(alignment: .leading, spacing: 10) {
+                Label(L("Check against the build"), systemImage: "checklist")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Text(L("Compares every key and entitlement you set with what this .ipa already has, and the identity with what it already says."))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Button {
+                    check = compareWithBuild()
+                } label: {
+                    Label(L("Check"), systemImage: "magnifyingglass")
+                        .font(.footnote.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .disabled(snapshot.missing)
+
+                if let check {
+                    VStack(alignment: .leading, spacing: 6) {
+                        line(L("Changes a value"), check.changes.count, .orange)
+                        line(L("Adds a key the build lacks"), check.additions.count, Theme.accent2)
+                        line(L("Already what you asked for"), check.unchanged.count, .secondary)
+                        line(L("Can't be used"), check.invalid.count, .red)
+                        ForEach(check.changes, id: \.key) { change in
+                            Text("\(change.key): \(change.from) → \(change.to)")
+                                .font(.caption2.monospaced())
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                        }
+                        ForEach(check.invalid, id: \.self) { key in
+                            Text(L("%@: that value can't be a plist entry", key))
+                                .font(.caption2)
+                                .foregroundStyle(.red)
+                                .lineLimit(2)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func line(_ title: String, _ count: Int, _ color: Color) -> some View {
+        HStack(spacing: 8) {
+            Text("\(count)")
+                .font(.caption.monospacedDigit().weight(.semibold))
+                .foregroundStyle(count > 0 ? color : .tertiary)
+                .frame(width: 22, alignment: .leading)
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 0)
+        }
+    }
+
+    /// What applying the configuration would actually do to this build.
+    private struct Check {
+        var changes: [(key: String, from: String, to: String)] = []
+        var additions: [String] = []
+        var unchanged: [String] = []
+        var invalid: [String] = []
+    }
+
+    private func compareWithBuild() -> Check {
+        var result = Check()
+        let plist = Dictionary(uniqueKeysWithValues: snapshot.plist.map { ($0.key, $0.text) })
+        let entitlements = Dictionary(uniqueKeysWithValues: snapshot.entitlements.map { ($0.key, $0.text) })
+
+        for edit in store.config.plistEdits {
+            let key = edit.key.trimmed
+            guard !key.isEmpty else { continue }
+            guard let value = edit.object else {
+                result.invalid.append(key.isEmpty ? L("(no key)") : key)
+                continue
+            }
+            let wanted = PlistEdit.Kind.text(value)
+            if let current = plist[key] {
+                if current == wanted { result.unchanged.append(key) }
+                else { result.changes.append((key, current, wanted)) }
+            } else {
+                result.additions.append(key)
+            }
+        }
+        for edit in store.config.entitlements {
+            let key = edit.key.trimmed
+            guard !key.isEmpty else { continue }
+            guard let value = edit.object else {
+                result.invalid.append(key)
+                continue
+            }
+            let wanted = PlistEdit.Kind.text(value)
+            if let current = entitlements[key] {
+                if current == wanted { result.unchanged.append(key) }
+                else { result.changes.append((key, current, wanted)) }
+            } else {
+                result.additions.append(key)
+            }
+        }
+        return result
+    }
+
     // MARK: Extensions
 
     private var extensionsCard: some View {
@@ -553,6 +665,17 @@ struct AppConfigView: View {
                                     .font(.caption2)
                                     .foregroundStyle(store.injector(for: kind) == nil ? .orange : .secondary)
                             }
+                        }
+                        // The path the executable loads it from. Editable, since
+                        // a tweak built for `@rpath` or a framework needs its own.
+                        if tweak.isDeb == false {
+                            TextField(L("@executable_path/Frameworks/\(tweak.name)"),
+                                      text: Binding(get: { tweak.loadPath },
+                                                    set: { store.setLoadPath($0, for: tweak.id) }))
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+                                .font(.caption2.monospaced())
+                                .fieldBackground()
                         }
                         Toggle(isOn: Binding(get: { tweak.weak },
                                              set: { store.setWeak($0, for: tweak.id) })) {

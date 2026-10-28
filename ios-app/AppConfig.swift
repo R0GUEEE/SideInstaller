@@ -353,6 +353,11 @@ final class AppConfigStore: ObservableObject {
         try? FileManager.default.removeItem(atPath: tweak.path)
     }
 
+    func setLoadPath(_ path: String, for id: UUID) {
+        guard let index = config.tweaks.firstIndex(where: { $0.id == id }) else { return }
+        config.tweaks[index].loadPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     func setWeak(_ weak: Bool, for id: UUID) {
         guard let index = config.tweaks.firstIndex(where: { $0.id == id }) else { return }
         config.tweaks[index].weak = weak
