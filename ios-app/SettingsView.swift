@@ -41,6 +41,13 @@ struct SettingsView: View {
     @State private var confirmEnableDeveloperMode = false
     /// Set while the Report a problem sheet is up.
     @State private var showReport = false
+    /// A one-line note from an action in the extensions (reset, clear).
+    @State private var settingsNote: String?
+
+    /// Called by the settings extensions to report what an action did.
+    func showNote(_ text: String) {
+        settingsNote = text
+    }
     /// Set while the app-configuration toolkit is up.
     @State private var showAppConfig = false
 
@@ -59,11 +66,28 @@ struct SettingsView: View {
                 downloadsSection
                 anisetteSection
                 appConfigSection
+                sourcesSection
                 advancedSection
                 logSection
+                diagnosticsSection
                 aboutSection
             }
             .sheet(item: $editorTarget) { AccountEditor(target: $0) }
+            .overlay(alignment: .bottom) {
+                if let settingsNote {
+                    Text(settingsNote)
+                        .font(.caption)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 9)
+                        .background(Capsule().fill(.ultraThinMaterial))
+                        .padding(.bottom, 12)
+                        .transition(.opacity)
+                        .task(id: settingsNote) {
+                            try? await Task.sleep(nanoseconds: 2_500_000_000)
+                            withAnimation { self.settingsNote = nil }
+                        }
+                }
+            }
             .sheet(isPresented: $showReport) { ReportProblemView() }
             // Attached to the Form, apart from the download alert below, so the
             // two alerts don't conflict.

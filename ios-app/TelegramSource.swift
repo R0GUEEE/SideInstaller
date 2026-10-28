@@ -48,10 +48,12 @@ enum TelegramSource {
         async throws -> (name: String, entries: [MarketEntry]) {
         var bridged: (name: String, entries: [MarketEntry])?
         var bridgedError: Error?
-        do {
-            bridged = try await TelegramBridge.entries(channel: channel)
-        } catch {
-            bridgedError = error
+        if AppSettings.shared.bridgeEnabled {
+            do {
+                bridged = try await TelegramBridge.entries(channel: channel)
+            } catch {
+                bridgedError = error
+            }
         }
 
         var previewed: (name: String, entries: [MarketEntry])?

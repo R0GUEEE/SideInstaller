@@ -53,6 +53,7 @@ final class BackgroundKeepAlive: ObservableObject {
 
     /// Asks for the next refresh — a few hours at most, whenever iOS decides.
     func scheduleRefresh() {
+        guard AppSettings.shared.backgroundRefresh else { return }
         let request = BGAppRefreshTaskRequest(identifier: Self.taskIdentifier)
         request.earliestBeginDate = Date(timeIntervalSinceNow: 4 * 60 * 60)
         do {

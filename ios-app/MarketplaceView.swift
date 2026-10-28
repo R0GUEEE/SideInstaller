@@ -107,7 +107,7 @@ struct MarketplaceView: View {
     @State private var builtRevision = -1
     /// How the list is ordered. Applies to every view, including a source's own
     /// shelf, so the same list can be read newest-first or alphabetically.
-    @State private var sort: SortOrder = .name
+    @State private var sort: SortOrder = SortOrder(rawValue: AppSettings.shared.marketplaceSort) ?? .name
     @State private var selected: MarketEntry?
     @State private var showAdd = false
     @State private var showManageSources = false
@@ -144,7 +144,10 @@ struct MarketplaceView: View {
             .onChange(of: store.revision) { _, _ in syncFromStore() }
             .onChange(of: filter) { _, _ in refreshVisible() }
             .onChange(of: query) { _, _ in refreshVisible() }
-            .onChange(of: sort) { _, _ in refreshVisible() }
+            .onChange(of: sort) { _, _ in
+                AppSettings.shared.marketplaceSort = sort.rawValue
+                refreshVisible()
+            }
             // An install takes over the Install tab, so the app's page closes
             // itself rather than sitting over the run's progress.
             .onChange(of: engine.isRunning) { _, running in
@@ -486,6 +489,11 @@ struct MarketplaceView: View {
             list = list.filter { MarketCategory.of($0.category).id == id }
         case .source(let id):
             list = list.filter { entry in entry.versions.contains { $0.sourceID == id } }
+        }
+        if !AppSettings.shared.showNonDirectEntries {
+            // Entries whose every release leads to another app (a Telegram post,
+            // say) are what this hides: the list is then only what installs here.
+            list = list.filter { entry in entry.versions.contains { $0.direct } }
         }
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty {

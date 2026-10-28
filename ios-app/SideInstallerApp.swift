@@ -27,6 +27,13 @@ struct SideInstallerApp: App {
         // launching, so it's first.
         BackgroundKeepAlive.shared.register()
         BackgroundKeepAlive.shared.scheduleRefresh()
+        // Settings can start the local server and scan the channels with the
+        // app, so both go through the objects the screens use.
+        let settings = AppSettings.shared
+        if settings.serverAutoStart { LocalSourceServer.shared.start() }
+        if settings.scanOnLaunch {
+            Task { @MainActor in await TelegramStudio.shared.scan() }
+        }
         // iOS hands over the last crash's diagnostic now, for Report a problem.
         CrashDiagnostics.shared.start()
     }

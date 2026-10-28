@@ -57,6 +57,9 @@ final class LocalSourceServer: ObservableObject {
 
     func start() {
         guard listener == nil else { return }
+        // The port comes from Settings, so it can be moved off a busy one.
+        let wanted = UInt16(clamping: AppSettings.shared.serverPort)
+        if wanted > 0 { port = wanted }
         state = .starting
         do {
             let parameters = NWParameters.tcp

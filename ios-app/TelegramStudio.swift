@@ -88,7 +88,9 @@ final class TelegramStudio: ObservableObject {
         guard !channels.contains(where: { $0.id == handle.lowercased() }) else {
             return L("@%@ is already in the list.", handle)
         }
-        channels.append(Channel(handle: handle, title: "@" + handle))
+        channels.append(Channel(handle: handle, title: "@" + handle,
+                                allPages: true,
+                                pages: AppSettings.shared.defaultPages))
         save()
         return nil
     }
@@ -117,10 +119,10 @@ final class TelegramStudio: ObservableObject {
         save()
     }
 
-    /// With "every page" on, this is the walk's backstop: forty preview pages is
-    /// about eight hundred posts, and the reader stops earlier when a page
-    /// brings nothing new.
-    static let allPageLimit = 40
+    /// With "every page" on, this is the walk's backstop — configurable in
+    /// Settings (forty pages is about eight hundred posts), and the reader stops
+    /// earlier when a page brings nothing new.
+    static var allPageLimit: Int { max(5, AppSettings.shared.allPagesLimit) }
 
     // MARK: - The directory
 
