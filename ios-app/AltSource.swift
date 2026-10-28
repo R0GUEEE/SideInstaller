@@ -41,7 +41,7 @@ struct AltSource: Decodable, Identifiable, Sendable {
         // vanished because its top-level `version` decoded as nil.
         let raw: [String: Any]
         do {
-            raw = (try decoder.singleValueContainer().decode([String: Any].self))
+            raw = try JSONValue.object(from: decoder)
         } catch {
             raw = [:]
         }
@@ -71,6 +71,20 @@ struct AltSource: Decodable, Identifiable, Sendable {
 
     /// The icon as a URL, when the source gave something usable.
     var icon: URL? { URL(string: iconURL ?? "") }
+}
+
+/// Turns a decoded JSON value back into Foundation objects, so a whole
+/// document can be read field by field instead of through typed containers.
+///
+/// `JSONDecoder` offers no way to get the raw value of a key that isn't the
+/// type it was asked for; this walks `[String: Any]` / `[Any]` / scalars
+/// directly, which is the "parse, then interpret" model sources need.
+enum JSONValue {
+    static func object(from decoder: Decoder) throws -> [String: Any] {
+        let container = try decoder.singleValueContainer()
+        if let dict = try? container.decode([String: Any].self) { return dict }
+        return [:]
+    }
 }
 
 /// Reads plist-ish JSON leniently: a value that isn't the type asked for is
@@ -134,6 +148,34 @@ struct AltApp: Identifiable, Sendable {
 
     var id: String { (bundleIdentifier ?? name) + "@" + (iconURL ?? "") }
 
+    /// Built from one app's JSON, leniently: a field of the wrong type is
+    /// dropped, not the app.
+    init(plist: [String: Any]) {
+        let reader = PlistValue(plist)
+        name = reader.string("name") ?? "Untitled app"
+        bundleIdentifier = reader.string("bundleIdentifier")
+        developerName = reader.string("developerName")
+        subtitle = reader.string("subtitle")
+        localizedDescription = reader.string("localizedDescription")
+        iconURL = reader.string("iconURL")
+        tintColor = reader.string("tintColor")
+        category = reader.string("category")
+        screenshots = reader.strings("screenshots")
+        version = reader.string("version")
+        downloadURL = reader.string("downloadURL")
+        size = reader.int("size")
+
+        let listed = (plist["versions"] as? [Any])?.compactMap { item -> AltVersion? in
+            guard let dict = item as? [String: Any] else { return nil }
+            return AltVersion(plist: dict)
+        } ?? []
+        versions = listed
+        releases = AltApp.releases(from: listed,
+                                   top: (version: version, downloadURL: downloadURL,
+                                         size: size, description: localizedDescription),
+                                   date: reader.string("versionDate"))
+    }
+
     /// Newest first, downloadable only. A v1 app (no `versions`) keeps its own
     /// top-level release, which is where these sources put the only one they
     /// have — CyPwn's whole catalogue is shaped that way.
@@ -149,14 +191,6 @@ struct AltApp: Identifiable, Sendable {
         }
         return Array(found.reversed())
     }
-
-    /// Every release that can actually be downloaded, newest first. Worked out
-    /// once at decode time: the list is read by list rows, the release picker
-    /// and the source's own filtering, and re-deriving it each time was most of
-    /// the cost of a big source.
-    let releases: [AltVersion]
-
-    var id: String { (bundleIdentifier ?? name) + "@" + (iconURL ?? "") }
 
     var latest: AltVersion? { releases.first }
 
@@ -178,6 +212,20 @@ struct AltVersion: Identifiable, Equatable, Sendable {
     let downloadURL: String?
     let size: Int64?
     let minOSVersion: String?
+
+    /// The memberwise initialiser Swift would have generated, kept so the
+    /// v1 fallback can build a release from an app's own fields.
+    init(version: String?, buildVersion: String?, date: String?,
+         localizedDescription: String?, downloadURL: String?, size: Int64?,
+         minOSVersion: String?) {
+        self.version = version
+        self.buildVersion = buildVersion
+        self.date = date
+        self.localizedDescription = localizedDescription
+        self.downloadURL = downloadURL
+        self.size = size
+        self.minOSVersion = minOSVersion
+    }
 
     init(plist: [String: Any]) {
         let reader = PlistValue(plist)
