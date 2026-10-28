@@ -1396,3 +1396,19 @@ Two features added on top of the install pipeline: browsing AltStore sources, an
   and is the thing you need when the app is freshly installed. Links are community sources; the app
   doesn't endorse what they carry.
 
+### Verifying the repository market
+
+- Probed every candidate with `curl -L -m 20 -w %{http_code}` and decoded the body, so a 200 that
+  was a web page counted as dead. Sources consulted: the `awesome-altstore` list (victordedomenico),
+  GitHub repository search, SideStore's Community-Source repo, and the stores' own sites. Reddit's
+  JSON API refuses unauthenticated requests now (403), so its lists weren't usable directly; the
+  sources they recommend (AppTesters, CyPwn, Quark, Quantum) were verified individually instead.
+- **Dead, removed**: E-Sign's `esign.yyyue.xyz/appstore.json` (404), AppDB (`repo.appdb.to` — no
+  route), iOS Haven (`apps.json` 404). E-Sign's practical successor in the list is BatSign's own
+  source, which resolves.
+- **Worth knowing**: AppTesters' catalogue reports 9,879 apps but carries no `category` field, so
+  every one of them lands in "Other" in the marketplace — that's the source's own data, not a bug
+  here. It's also 10 MB of JSON, which is why the marketplace decodes to rows and drops the document.
+- Re-verify by re-running the probe script against `RepositoryDirectory.all` before any release
+  that claims these work.
+

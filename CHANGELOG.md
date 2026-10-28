@@ -5,7 +5,13 @@ All notable changes to SideInstaller are documented here.
 ## Unreleased
 
 ### Added
-- **A repository market.** Sources now open with a curated list of popular repositories — big
+- **A repository market, every entry checked.** 33 sources across six groups, each one fetched
+  during development and confirmed to return an AltStore-format document (or, for the six GitHub
+  rows, releases with `.ipa` assets): AltStore, SideStore, SideStore Team Picks, BatSign, App Fair,
+  Taurine; AltStore Complete, Quantum Source and ++, AppTesters, CyPwn; UTM, Provenance, iSH,
+  Flycast, Odyssey, Apollo, OatmealDome, Ignited; six community sources; and GitHub release feeds for
+  SideStore, LiveContainer, UTM, PPSSPP, Provenance and Delta. The dead entries (E-Sign's old
+  `appstore.json`, AppDB, iOS Haven) are gone — Sources now open with a curated list of popular repositories — big
   catalogues (AppTesters, CyPwn, AppDB, iOS Haven), official ones (AltStore, E-Sign, FrizzleM's), and
   GitHub release feeds (SideStore, LiveContainer, UTM, PPSSPP, Provenance, Delta) — each added in one
   tap and labelled with the store it comes from.
