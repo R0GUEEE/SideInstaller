@@ -1,6 +1,7 @@
 import Foundation
 
 func L(_ key: String) -> String { key }
+func L(_ key: String, _ arguments: CVarArg...) -> String { key }
 
 // Arguments: JSON files to read (a source document each).
 var failures = 0
