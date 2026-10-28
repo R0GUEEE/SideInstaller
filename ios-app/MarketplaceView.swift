@@ -170,7 +170,8 @@ struct MarketplaceView: View {
                     .padding(.top, 12)
                 ForEach(store.sources) { loaded in
                     railButton(.source(loaded.id), title: loaded.name, icon: "shippingbox.fill",
-                               count: bySource[loaded.id]?.count ?? loaded.appCount)
+                               count: bySource[loaded.id]?.count ?? loaded.appCount,
+                               failed: loaded.error != nil)
                 }
                 Button {
                     showAdd = true
@@ -198,7 +199,8 @@ struct MarketplaceView: View {
         .background(.black.opacity(0.12))
     }
 
-    private func railButton(_ value: Filter, title: String, icon: String, count: Int) -> some View {
+    private func railButton(_ value: Filter, title: String, icon: String, count: Int,
+                            failed: Bool = false) -> some View {
         let selected = (filter ?? .all) == value
         return Button {
             filter = value
@@ -211,7 +213,11 @@ struct MarketplaceView: View {
                     .lineLimit(2)
                     .multilineTextAlignment(.center)
                     .minimumScaleFactor(0.8)
-                if count > 0 {
+                if failed {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.caption2)
+                        .foregroundStyle(selected ? AnyShapeStyle(Color.white) : AnyShapeStyle(Color.orange))
+                } else if count > 0 {
                     Text("\(count)")
                         .font(.caption2.monospacedDigit())
                         .foregroundStyle(selected ? AnyShapeStyle(Color.white.opacity(0.8)) : AnyShapeStyle(.tertiary))
@@ -316,6 +322,21 @@ struct MarketplaceView: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                     ProgressView()
+                } else if case .source(let id) = filter ?? .all,
+                          let loaded = store.sources.first(where: { $0.id == id }),
+                          let error = loaded.error {
+                    Text(L("%@ didn't load", loaded.name))
+                        .font(.headline)
+                    Text(error)
+                        .font(.subheadline)
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button {
+                        Task { await store.refresh(id) }
+                    } label: {
+                        Label(L("Try again"), systemImage: "arrow.clockwise")
+                    }
+                    .buttonStyle(.bordered)
                 } else if !query.isEmpty {
                     Text(L("No app matches “%@”.", query))
                         .font(.subheadline)
