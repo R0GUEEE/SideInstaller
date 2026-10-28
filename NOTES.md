@@ -1379,3 +1379,20 @@ Two features added on top of the install pipeline: browsing AltStore sources, an
   40 apps) and `AVFoundation`-free `UIImage(data:)` decoding of 60pt PNGs; the fix there is to
   downsample with `CGImageSourceCreateThumbnailAtIndex` and store the small image.
 
+### TestFlight in My Apps, and source kinds
+
+- `SideloadedApp.init?(plist:kinds:)` defaults to *excluding* App Store apps but also excluded
+  TestFlight from the manager's parse, so the section had nothing to show. The manager now passes
+  `[.sideloaded, .testFlight]` explicitly.
+- TestFlight builds carry `beta-reports-active`; their profile is Apple's and renews on its own.
+  Offering Refresh/Re-sign on them would register an App ID and install a second copy under a
+  different signature, so those rows only get Open, Info and Delete — and the inline Re-sign button
+  is hidden for them.
+- **SourceKind** is presentation plus one real behaviour. `.altSource` is every JSON catalogue
+  (AltStore, SideStore, Feather, E-Sign, Scarlet all publish the same schema); `.github` reads a
+  repository's releases, one app per distinct `.ipa` asset name, one version per tag. Rate limits
+  are reported as such — 30 releases per repository keeps a single request.
+- **Repository directory** is shipped, not scraped: a curated list works offline, can be trusted,
+  and is the thing you need when the app is freshly installed. Links are community sources; the app
+  doesn't endorse what they carry.
+

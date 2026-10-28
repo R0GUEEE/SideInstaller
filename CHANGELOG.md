@@ -4,6 +4,21 @@ All notable changes to SideInstaller are documented here.
 
 ## Unreleased
 
+### Added
+- **A repository market.** Sources now open with a curated list of popular repositories — big
+  catalogues (AppTesters, CyPwn, AppDB, iOS Haven), official ones (AltStore, E-Sign, FrizzleM's), and
+  GitHub release feeds (SideStore, LiveContainer, UTM, PPSSPP, Provenance, Delta) — each added in one
+  tap and labelled with the store it comes from.
+- **More than one kind of source.** The add sheet recognises AltStore-format JSON from any host, the
+  stores' own `altstore://` / `sidestore://` / `esign://` style links, plain website addresses, and
+  `github.com/owner/repo`, whose `.ipa` release assets are read as a source of their own.
+
+### Changed
+- **My Apps is split into TestFlight and sideloaded.** Sideloaded builds come first — they're the
+  ones that expire and need re-signing — with TestFlight below them. A TestFlight build's menu offers
+  Open, Info and Delete only: its provisioning is Apple's, so re-signing it here would replace a
+  working beta with the wrong kind of build.
+
 ### Changed
 - **My Apps no longer parses on the main thread.** Even from cache, the tab decoded every
   provisioning profile (a property list inside each CMS blob) and matched them to apps before its
