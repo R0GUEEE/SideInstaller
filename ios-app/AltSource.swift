@@ -10,7 +10,7 @@ import Foundation
 /// app's releases under `versions`, while v1 repeats the newest release as
 /// top-level `version` / `downloadURL` / `size`. Fields a source leaves out are
 /// simply absent, so every property here is optional except the name.
-struct AltSource: Decodable, Identifiable, Sendable {
+struct AltSource: Identifiable, Sendable {
 
     let name: String
     let identifier: String?
@@ -34,17 +34,13 @@ struct AltSource: Decodable, Identifiable, Sendable {
 
     var id: String { identifier ?? name }
 
-    init(from decoder: Decoder) throws {
-        // Read through `Any` rather than typed containers: sources in the wild
-        // put numbers where strings go (a `version` of `1`), and one mistyped
-        // field used to cost the whole document — every app in a v1 source
-        // vanished because its top-level `version` decoded as nil.
-        let raw: [String: Any]
-        do {
-            raw = try JSONValue.object(from: decoder)
-        } catch {
-            raw = [:]
-        }
+    /// Built from the document's bytes: leniently, field by field.
+    init(data: Data) {
+        // Read through `Any` rather than a typed schema: sources in the wild put
+        // numbers where strings go (a `version` of `1`), and one mistyped field
+        // used to cost the whole document — every app in a v1 source vanished
+        // because its top-level `version` failed to decode as a string.
+        let raw = JSONValue.object(data)
         let reader = PlistValue(raw)
         name = reader.string("name") ?? "Untitled source"
         identifier = reader.string("identifier")
@@ -80,10 +76,14 @@ struct AltSource: Decodable, Identifiable, Sendable {
 /// type it was asked for; this walks `[String: Any]` / `[Any]` / scalars
 /// directly, which is the "parse, then interpret" model sources need.
 enum JSONValue {
-    static func object(from decoder: Decoder) throws -> [String: Any] {
-        let container = try decoder.singleValueContainer()
-        if let dict = try? container.decode([String: Any].self) { return dict }
-        return [:]
+    /// The whole document as Foundation objects.
+    ///
+    /// `Decodable` can't hand back an untyped tree, and sources don't share one
+    /// schema — one writes `"version": "1.2"`, the next `"version": 1`. So the
+    /// bytes go through `JSONSerialization` once and every field is then
+    /// checked by `PlistValue` when it's read.
+    static func object(_ data: Data) -> [String: Any] {
+        (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
     }
 }
 
@@ -712,7 +712,8 @@ final class SourceStore: ObservableObject {
 
     /// One source's worth of JSON, however it arrived.
     nonisolated static func decode(_ data: Data) -> AltSource? {
-        try? JSONDecoder().decode(AltSource.self, from: data)
+        let source = AltSource(data: data)
+        return source.apps.isEmpty ? nil : source
     }
 
     enum SourceError: LocalizedError {

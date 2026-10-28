@@ -1,0 +1,40 @@
+name: source-parser
+
+# Decodes real source documents through the app's own models and fails if any
+# app is dropped or left without a release. "Empty when filtered" was exactly
+# this: a v1 document whose entries the typed decoder threw away.
+#
+# Needs no Xcode — these models are plain Foundation.
+
+on:
+  push:
+    paths:
+      - "ios-app/AltSource.swift"
+      - "tools/parser-check/**"
+      - ".github/workflows/source-parser.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  parse:
+    name: Decode live sources
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build the checker
+        run: |
+          swiftc -O ios-app/AltSource.swift ios-app/SourceKind.swift tools/parser-check/main.swift \
+            -o "$RUNNER_TEMP/parser-check"
+
+      - name: Decode real sources
+        run: |
+          set -euo pipefail
+          curl -sL -m 60 https://ipa.cypwn.xyz/cypwn.json -o "$RUNNER_TEMP/cypwn.json"
+          curl -sL -m 60 https://repository.apptesters.org -o "$RUNNER_TEMP/apptesters.json"
+          curl -sL -m 60 https://apps.altstore.io -o "$RUNNER_TEMP/altstore.json"
+          curl -sL -m 60 https://quarksources.github.io/altstore-complete.json -o "$RUNNER_TEMP/quark.json"
+          "$RUNNER_TEMP/parser-check" "$RUNNER_TEMP"/*.json
