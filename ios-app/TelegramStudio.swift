@@ -108,6 +108,57 @@ final class TelegramStudio: ObservableObject {
         save()
     }
 
+    // MARK: - The directory
+
+    /// Channels worth adding, grouped. A channel can be added from here in one
+    /// tap; the free-form field stays for anything not listed.
+    ///
+    /// These are *public* channels with existing IPA content, not "your joined
+    /// channels" — listing what your account is in requires a signed-in
+    /// Telegram client, which this build doesn't have.
+    struct DirectoryGroup: Identifiable {
+        let title: String
+        let note: String?
+        let channels: [DirectoryChannel]
+
+        var id: String { title }
+    }
+
+    struct DirectoryChannel: Identifiable {
+        let handle: String
+        let name: String
+        let detail: String
+        /// Measured when this list was written: does the channel publish a
+        /// web preview, or does it only come through the bridge?
+        let readable: Bool
+
+        var id: String { handle.lowercased() }
+        var link: URL { URL(string: "https://t.me/\(handle)")! }
+    }
+
+    static let directory: [DirectoryGroup] = [
+        DirectoryGroup(title: L("Working now"), note: L("Publish a web preview, and the bridge carries their files."), channels: [
+            DirectoryChannel(handle: "ipahub", name: "ipahub",
+                             detail: L(".ipa attachments with sizes; opens the post to download."), readable: true),
+            DirectoryChannel(handle: "ipaomtk", name: "IPAOMTK",
+                             detail: L("Write-ups linking its own site; the bridge exposes the files."), readable: true),
+        ]),
+        DirectoryGroup(title: L("Through the bridge"), note: L("No web preview — Telegram alone can't read these. The RSS bridge can, and it links the .ipa files directly."), channels: [
+            DirectoryChannel(handle: "blatants", name: "Blatant's iPA Library",
+                             detail: L("Tweaked IPAs, updated automatically. Files download directly."), readable: false),
+            DirectoryChannel(handle: "binnichtaktivsipas", name: "binnichtaktiv's iPA Library",
+                             detail: L("Attachments; files download directly through the bridge."), readable: false),
+            DirectoryChannel(handle: "iOS_Randy420", name: "iOS Tutorials + App Cracks",
+                             detail: L("Mixed posts, some with attachments; the bridge picks out the .ipa ones."), readable: false),
+        ]),
+        DirectoryGroup(title: L("Add your own"), note: L("Any public channel works: paste t.me/<channel> below. A private channel (t.me/c/…) has no public page at all."), channels: []),
+    ]
+
+    /// True when the handle is already in the list.
+    func contains(_ handle: String) -> Bool {
+        channels.contains { $0.id == handle.lowercased() }
+    }
+
     // MARK: - Scanning
 
     /// Reads every enabled channel, several pages deep, and keeps what it finds.

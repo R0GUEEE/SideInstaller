@@ -14,6 +14,8 @@ struct TelegramStudioView: View {
     @ObservedObject private var studio = TelegramStudio.shared
     @ObservedObject private var credentials = TelegramCredentials.shared
     @ObservedObject private var server = LocalSourceServer.shared
+    @ObservedObject private var keepAlive = BackgroundKeepAlive.shared
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dismiss) private var dismiss
 
     @State private var newChannel = ""
@@ -44,6 +46,11 @@ struct TelegramStudioView: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button(L("Done")) { dismiss() }
+                }
+            }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .background, serverRunning || keepAlive.isExtending {
+                    keepAlive.extendForBackground()
                 }
             }
             .sheet(isPresented: $showAccountInfo) { accountExplanation }
@@ -133,14 +140,70 @@ struct TelegramStudioView: View {
         }
     }
 
-    // MARK: Add
+    // MARK: Directory
 
+    /// The channels to choose from, grouped and drillable, with the free-form
+    /// field underneath for anything not listed.
     private var addCard: some View {
         PanelCard {
             VStack(alignment: .leading, spacing: 12) {
-                Label(L("Add a channel"), systemImage: "plus.circle")
+                Label(L("Add a channel"), systemImage: "list.bullet")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.secondary)
+
+                ForEach(TelegramStudio.directory) { group in
+                    DisclosureGroup {
+                        VStack(alignment: .leading, spacing: 8) {
+                            if let note = group.note {
+                                Text(note)
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            ForEach(group.channels) { channel in
+                                HStack(alignment: .top, spacing: 8) {
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        Text(channel.name)
+                                            .font(.subheadline)
+                                            .lineLimit(1)
+                                        Text("@\(channel.handle) · \(channel.detail)")
+                                            .font(.caption2)
+                                            .foregroundStyle(.tertiary)
+                                            .lineLimit(2)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
+                                    Spacer(minLength: 4)
+                                    if studio.contains(channel.handle) {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .foregroundStyle(.green)
+                                            .font(.footnote)
+                                    } else {
+                                        Button(L("Add")) {
+                                            addError = studio.add(channel.handle)
+                                        }
+                                        .font(.caption.weight(.semibold))
+                                        .buttonStyle(.borderless)
+                                    }
+                                }
+                            }
+                        }
+                        .padding(.top, 6)
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text(group.title)
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            if !group.channels.isEmpty {
+                                Text("\(group.channels.count)")
+                                    .font(.caption2.monospacedDigit())
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
+                    }
+                }
+
+                Divider().opacity(0.15)
+
                 HStack(spacing: 8) {
                     TextField("t.me/channel", text: $newChannel)
                         .textInputAutocapitalization(.never)
@@ -159,12 +222,13 @@ struct TelegramStudioView: View {
                     .disabled(newChannel.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
                 .fieldBackground()
+
                 if let addError {
                     Text(addError)
                         .font(.caption)
                         .foregroundStyle(.orange)
                 }
-                Text(L("Public channels only. A channel's preview is what gets read — around twenty posts a page, and pages can be walked back."))
+                Text(L("Listing the channels your own account has joined needs a signed-in Telegram client. These are public channels with IPA content, checked when this list was written."))
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -436,6 +500,18 @@ struct TelegramStudioView: View {
                     Text(L("%ld request(s) served.", server.served))
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
+                }
+                Divider().opacity(0.15)
+                Text(L("Background: iOS gives about thirty seconds after you leave the app, then wakes it on its own schedule to rescan. Silent audio and location sessions would keep it alive indefinitely — that's background-mode abuse, so it isn't used here."))
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let last = keepAlive.lastRefresh {
+                    Text(L("Last background scan %@ · %ld app(s)",
+                           last.formatted(date: .abbreviated, time: .shortened),
+                           keepAlive.lastRefreshApps ?? 0))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                 }
             }
         }

@@ -22,6 +22,11 @@ struct SideInstallerApp: App {
         PairingNotification.shared.reset()
         // So is an install's progress.
         InstallActivity.shared.endLeftovers()
+        // Background refreshes of the Telegram source, and the handler that
+        // runs them. Registration has to happen before the app finishes
+        // launching, so it's first.
+        BackgroundKeepAlive.shared.register()
+        BackgroundKeepAlive.shared.scheduleRefresh()
         // iOS hands over the last crash's diagnostic now, for Report a problem.
         CrashDiagnostics.shared.start()
     }

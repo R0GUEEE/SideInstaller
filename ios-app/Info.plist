@@ -5,6 +5,7 @@
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
 		<string>$(PRODUCT_BUNDLE_IDENTIFIER).install.*</string>
+	<string>com.frizzlem.sideinstaller.telegram</string>
 	</array>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>

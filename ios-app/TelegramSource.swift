@@ -5,16 +5,19 @@ import FoundationNetworking
 
 /// A Telegram channel as a source: the `.ipa` files its posts carry.
 ///
-/// Telegram has no public API for reading a channel without an account, but it
-/// does publish an HTML preview at `t.me/s/<channel>` — the same page a browser
-/// shows. That's what this reads. It gives the document's name and size, and the
-/// post's permalink, but **not** a download URL: file links are minted per
-/// session by the Telegram client and expire.
+/// Two readers, because Telegram gives no API without an account:
 ///
-/// So a Telegram entry is honest about what it is: a listing you can browse
-/// beside your other sources, whose install button opens the post in Telegram to
-/// download — unless the post itself links a direct `.ipa`, in which case that
-/// link is used and the app installs normally.
+/// - **The channel's own preview** (`t.me/s/<channel>`) — Telegram's, always
+///   current, and it shows each attached document's name and size. It does *not*
+///   give a file URL (those are minted per client session), so its entries open
+///   the post in Telegram.
+/// - **The RSS bridge** (`tg.i-c-a.su`) — a third-party reader that republishes
+///   the channel with `<enclosure>` links to the files themselves. Those
+///   download the `.ipa`, so they install. It also works for channels that
+///   publish no preview at all, which is otherwise unreadable.
+///
+/// Both are tried and merged: the bridge supplies installable links, the preview
+/// supplies the newest posts.
 enum TelegramSource {
 
     struct Failure: LocalizedError {
@@ -27,9 +30,8 @@ enum TelegramSource {
         let parts = url.path.split(separator: "/").map(String.init)
         switch url.host?.lowercased() {
         case "t.me", "telegram.me", "www.t.me":
-            // `t.me/c/<id>/<msg>` is a private channel's internal link: it has
-            // no public preview, so there's nothing an unauthenticated reader
-            // can fetch.
+            // `t.me/c/<id>/<msg>` is a private channel's internal link: no public
+            // preview, and nothing an unauthenticated reader can fetch.
             guard parts.first != "c" else { return nil }
             let name = parts.first == "s" ? parts.dropFirst().first : parts.first
             guard let name, !name.isEmpty,
@@ -40,17 +42,47 @@ enum TelegramSource {
         }
     }
 
-    /// Reads the channel's public preview and turns its `.ipa` documents into
-    /// entries.
-    ///
-    /// `pages` walks back through the channel with `?before=<oldest id>`, which
-    /// is how the web preview paginates: each page is about twenty posts, so
-    /// `pages: 5` covers a hundred.
+    /// The channel's apps: the bridge's installable links plus the preview's
+    /// latest posts, merged and newest first.
     static func entries(channel: String, pages: Int = 1)
+        async throws -> (name: String, entries: [MarketEntry]) {
+        var bridged: (name: String, entries: [MarketEntry])?
+        var bridgedError: Error?
+        do {
+            bridged = try await TelegramBridge.entries(channel: channel)
+        } catch {
+            bridgedError = error
+        }
+
+        var previewed: (name: String, entries: [MarketEntry])?
+        var previewError: Error?
+        do {
+            previewed = try await previewEntries(channel: channel, pages: pages)
+        } catch {
+            previewError = error
+        }
+
+        guard let base = bridged ?? previewed else {
+            throw bridgedError ?? previewError
+                ?? Failure(message: L("@%@ couldn't be read.", channel))
+        }
+        var merged = base.entries
+        if let preview = previewed {
+            let known = Set(merged.map { $0.name.lowercased() })
+            for entry in preview.entries where !known.contains(entry.name.lowercased()) {
+                merged.append(entry)
+            }
+        }
+        merged.sort { ($0.latest?.date ?? .distantPast) > ($1.latest?.date ?? .distantPast) }
+        return (previewed?.name ?? base.name, merged)
+    }
+
+    // MARK: - The channel's own preview
+
+    private static func previewEntries(channel: String, pages: Int)
         async throws -> (name: String, entries: [MarketEntry]) {
         var request = URLRequest(url: URL(string: "https://t.me/s/\(channel)")!)
         request.timeoutInterval = 25
-        // The preview varies by user agent; a desktop browser gets the rich one.
         request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
                          + "(KHTML, like Gecko) Version/17.0 Safari/605.1.15",
                          forHTTPHeaderField: "User-Agent")
@@ -59,10 +91,10 @@ enum TelegramSource {
             if http.statusCode == 404 {
                 throw Failure(message: L("Telegram has no public channel called @%@. Check the link, and that the channel isn't private.", channel))
             }
-            // Telegram redirects `t.me/s/<channel>` to the channel's join page
-            // when its preview is off — which is most channels.
+            // Telegram redirects `t.me/s/<channel>` to the join page when the
+            // channel publishes no preview.
             if http.statusCode == 302 || http.url?.path.hasPrefix("/s/") == false {
-                throw Failure(message: L("@%@ doesn't publish a web preview, so its posts can't be read here. Telegram only shows this channel inside its app — tap Open in Telegram.", channel))
+                throw Failure(message: L("@%@ doesn't publish a web preview, so its posts can't be read here.", channel))
             }
             guard (200...299).contains(http.statusCode) else {
                 throw Failure(message: L("Telegram answered %ld for @%@.", http.statusCode, channel))
@@ -78,44 +110,38 @@ enum TelegramSource {
 
         let title = firstMatch(#"<meta property="og:title" content="([^"]+)""#, in: html)
             ?? "@\(channel)"
+
+        var collected = posts(in: html)
+        if pages > 1 {
+            var oldest = collected.compactMap { Int($0.id) }.min()
+            for _ in 1..<pages {
+                guard let before = oldest else { break }
+                let next = (try? await page(channel: channel, before: before)) ?? []
+                let fresh = next.filter { post in !collected.contains { $0.id == post.id } }
+                guard !fresh.isEmpty else { break }
+                collected += fresh
+                oldest = fresh.compactMap { Int($0.id) }.min() ?? oldest
+            }
+        }
+
         var entries: [MarketEntry] = []
         var seen = Set<String>()
-        var firstPage = posts(in: html)
-
-        // Further pages, until the requested depth or the channel runs out.
-        var collected = firstPage
-        var oldest = firstPage.compactMap { Int($0.id) }.min()
-        for _ in 1..<max(1, pages) {
-            guard let before = oldest else { break }
-            guard let next = try? await page(channel: channel, before: before),
-                  !next.isEmpty else { break }
-            let fresh = next.filter { post in !collected.contains { $0.id == post.id } }
-            guard !fresh.isEmpty else { break }
-            collected += fresh
-            oldest = fresh.compactMap { Int($0.id) }.min() ?? oldest
-        }
-        firstPage = collected
-
-        for post in firstPage {
-            // A post's own links win: a direct .ipa downloads here, the rest
-            // open in Telegram.
+        for post in collected {
             let direct = post.links.first { $0.pathExtension.lowercased() == "ipa" }
             let permalink = URL(string: "https://t.me/\(channel)/\(post.id)")!
 
             var documents = post.documents
             if documents.isEmpty, let direct {
-                // No attachment shown, but the text links an .ipa: list it.
                 documents = [(name: direct.lastPathComponent, size: nil as Int64?,
                               sizeText: nil as String?)]
             }
-            // A post that is a write-up with a link rather than an attachment —
-            // how catalogue channels post — still names an app worth listing.
             var pageLink: URL?
             if documents.isEmpty, direct == nil {
-                guard let title = headline(of: post.text) else { continue }
-                documents = [(name: title, size: nil as Int64?, sizeText: nil as String?)]
+                guard let heading = headline(of: post.text) else { continue }
+                documents = [(name: heading, size: nil as Int64?, sizeText: nil as String?)]
                 pageLink = post.links.first
             }
+
             for document in documents {
                 let name = displayName(document.name)
                 guard seen.insert("\(post.id)|\(name)").inserted else { continue }
@@ -131,8 +157,6 @@ enum TelegramSource {
                                           sourceName: title,
                                           direct: true))
                 }
-                // Where the file isn't linked: the post itself, or the page it
-                // points at. Both are listings, not downloads.
                 let link = pageLink ?? permalink
                 versions.append(.init(id: "tg://\(channel)/\(post.id)/\(name)",
                                       version: version(in: document.name) ?? version(in: post.text),
@@ -152,12 +176,9 @@ enum TelegramSource {
                                            versions: versions))
             }
         }
-
         guard !entries.isEmpty else {
-            throw Failure(message: L("@%@ has no .ipa files in the posts Telegram shows. Only the channel's recent posts are public.", channel))
+            throw Failure(message: L("@%@ has no .ipa files in the posts Telegram shows.", channel))
         }
-        // Newest first, by post date.
-        entries.sort { ($0.latest?.date ?? .distantPast) > ($1.latest?.date ?? .distantPast) }
         return (title, entries)
     }
 
@@ -185,8 +206,9 @@ enum TelegramSource {
         let links: [URL]
     }
 
-    /// One post block per `tgme_widget_message_wrap`, the wrapper Telegram's own
-    /// web client renders.
+    /// One post per `tgme_widget_message_wrap`, the wrapper Telegram's own web
+    /// client renders. Split on the class name, not the whole attribute: the
+    /// element carries a second class.
     private static func posts(in html: String) -> [Post] {
         var out: [Post] = []
         let chunks = html.components(separatedBy: "tgme_widget_message_wrap")
@@ -194,12 +216,10 @@ enum TelegramSource {
             guard let id = firstMatch(#"data-post="[^/"]+/(\d+)""#, in: chunk) else { continue }
             let date = firstMatch(#"<time[^>]*datetime="([^"]+)""#, in: chunk).flatMap(iso.date(from:))
 
-            // Document name and size, as the browser shows them.
             var documents: [(String, Int64?, String?)] = []
-            for block in matches(#"<div class="tgme_widget_message_document_title[^>]*>([^<]*)</div>"#, in: chunk) {
-                let title = decodeEntities(block)
+            for title in matches(#"<div class="tgme_widget_message_document_title[^>]*>([^<]*)</div>"#, in: chunk) {
                 let sizeText = firstMatch(#"tgme_widget_message_document_extra[^>]*>([^<]*)<"#, in: chunk)
-                documents.append((title, nil, sizeText.map(decodeEntities)))
+                documents.append((decodeEntities(title), nil, sizeText.map(decodeEntities)))
             }
 
             let text = firstMatch(#"<div class="tgme_widget_message_text[^"]*"[^>]*>(.*?)</div>"#, in: chunk)
@@ -208,7 +228,6 @@ enum TelegramSource {
 
             let links = matches(#"href="(https?://[^"]+)""#, in: chunk)
                 .compactMap { URL(string: decodeEntities($0)) }
-                // Telegram's own links and stickers aren't downloads.
                 .filter { $0.host?.contains("telegram") != true && $0.host != "t.me" }
 
             out.append(Post(id: id, date: date, text: text,
@@ -219,7 +238,6 @@ enum TelegramSource {
     }
 
     /// The first real line of a post: how catalogue channels title their apps.
-    /// Emoji and decoration are stripped; "… IPA" loses the suffix.
     private static func headline(of text: String?) -> String? {
         guard let text else { return nil }
         for line in text.split(separator: "\n") {
@@ -241,10 +259,12 @@ enum TelegramSource {
         return name.isEmpty ? raw : name
     }
 
-    /// A version out of a file name or a caption, when one is written like one.
     private static func version(in text: String?) -> String? {
         guard let text else { return nil }
-        return firstMatch(#"v?(\d+\.\d+(?:\.\d+)?)"#, in: text)
+        guard let range = text.range(of: #"v?\d+\.\d+(\.\d+)?"#, options: .regularExpression) else { return nil }
+        var found = String(text[range])
+        if found.hasPrefix("v") { found.removeFirst() }
+        return found
     }
 
     private static func byteCount(_ text: String?) -> Int64? {
@@ -263,12 +283,7 @@ enum TelegramSource {
     // MARK: - Small HTML helpers
 
     private static func firstMatch(_ pattern: String, in text: String) -> String? {
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]),
-              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
-              match.numberOfRanges > 1,
-              let range = Range(match.range(at: 1), in: text)
-        else { return nil }
-        return String(text[range])
+        matches(pattern, in: text).first
     }
 
     private static func matches(_ pattern: String, in text: String) -> [String] {

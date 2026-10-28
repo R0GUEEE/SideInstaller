@@ -179,6 +179,12 @@ final class LocalSourceServer: ObservableObject {
                 return
             }
             send(status: 200, type: "application/json", body: data, on: connection)
+        case "/analyze", "/analyze.html":
+            send(status: 200, type: "text/html; charset=utf-8",
+                 body: Data(Self.analyzePage().utf8), on: connection)
+        case "/analyze.json":
+            send(status: 200, type: "application/json",
+                 body: Data(Self.analyzeJSON().utf8), on: connection)
         case "/health":
             let entries = TelegramStudio.shared.allEntries.count
             let body = #"{"status":"ok","apps":\#(entries),"channels":\#(TelegramStudio.shared.channels.count)}"#
@@ -218,6 +224,87 @@ final class LocalSourceServer: ObservableObject {
 
     // MARK: - The index
 
+    /// Every channel the studio knows, its apps and their links — the page a
+    /// browser or a webview can be pointed at.
+    @MainActor
+    private static func analyzePage() -> String {
+        let studio = TelegramStudio.shared
+        var sections: [String] = []
+        for result in studio.results + studio.imports {
+            let rows = result.entries.map { entry -> String in
+                let version = entry.latest?.version ?? "—"
+                let link = entry.latest?.url ?? ""
+                let direct = entry.latest?.direct == true
+                let size = entry.latest?.size.map {
+                    ByteCountFormatter.string(fromByteCount: $0, countStyle: .file)
+                } ?? "—"
+                return "<tr><td>" + escape(entry.name) + "</td><td>" + escape(version)
+                    + "</td><td>" + escape(size) + "</td><td><a href=\"" + escape(link) + "\">"
+                    + (direct ? "download" : "open in Telegram") + "</a></td></tr>"
+            }.joined()
+            let header = result.error.map { " — " + escape($0) } ?? " · \(result.entries.count) apps"
+            sections.append("<div class=\"card\"><h2>@" + escape(result.channel) + header
+                + "</h2><table><tr><th>app</th><th>version</th><th>size</th><th></th></tr>"
+                + rows + "</table></div>")
+        }
+        let body = sections.isEmpty
+            ? "<div class=\"card\"><p>No scan yet. Open SideInstaller › Sources › Telegram channels and scan.</p></div>"
+            : sections.joined()
+        return page(title: "Telegram analysis", body: body)
+    }
+
+    /// The same information as JSON, for a client that wants to build its own UI.
+    @MainActor
+    private static func analyzeJSON() -> String {
+        let studio = TelegramStudio.shared
+        let channels: [[String: Any]] = (studio.results + studio.imports).map { result in
+            [
+                "channel": result.channel,
+                "error": result.error ?? NSNull(),
+                "apps": result.entries.map { entry -> [String: Any] in
+                    [
+                        "name": entry.name,
+                        "version": entry.latest?.version ?? NSNull(),
+                        "size": entry.latest?.size ?? NSNull(),
+                        "url": entry.latest?.url ?? NSNull(),
+                        "direct": entry.latest?.direct ?? false,
+                    ]
+                },
+            ]
+        }
+        let document: [String: Any] = [
+            "generated": ISO8601DateFormatter().string(from: Date()),
+            "channels": channels,
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: document,
+                                                     options: [.sortedKeys]),
+              let text = String(data: data, encoding: .utf8) else { return "{}" }
+        return text
+    }
+
+    private static func escape(_ text: String) -> String {
+        text.replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+            .replacingOccurrences(of: "\"", with: "&quot;")
+    }
+
+    private static func page(title: String, body: String) -> String {
+        "<!doctype html><html><head><meta charset=\"utf-8\">"
+        + "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+        + "<title>\(title)</title><style>"
+        + "body{font:16px -apple-system,system-ui;margin:0;padding:24px;background:#0b0f1a;color:#e8edf7}"
+        + "h1{font-size:22px;margin:0 0 8px} h2{font-size:16px;margin:0 0 8px}"
+        + "p{color:#9aa7bd;margin:6px 0} a{color:#5aa2ff;text-decoration:none}"
+        + ".card{background:#141a28;border:1px solid #22304a;border-radius:14px;padding:16px;"
+        + "margin:14px 0;overflow-x:auto}"
+        + "table{width:100%;border-collapse:collapse;font-size:14px}"
+        + "th,td{text-align:left;padding:6px;border-top:1px solid #1d2740;color:#c8d3e6;"
+        + "vertical-align:top;word-break:break-word}"
+        + "th{color:#8296b3;font-weight:600;border-top:0}"
+        + "</style></head><body><h1>\(title)</h1>\(body)</body></html>"
+    }
+
     /// A page listing what the server is serving, and what it can't.
     @MainActor
     private static func indexPage() -> String {
@@ -252,6 +339,7 @@ final class LocalSourceServer: ObservableObject {
           <p><strong>\(entries.count)</strong> apps from <strong>\(channels.count)</strong> channels</p>
           <p><a href="/telegram-source.json">/telegram-source.json</a> — add this URL as a source</p>
           <p><a href="/health">/health</a> — JSON status</p>
+          <p><a href="/analyze">/analyze</a> — what each channel yielded</p>
         </div>
         <div class="card"><table>
           <tr><td>channel</td><td>scan</td><td>depth</td></tr>
