@@ -19,6 +19,9 @@ extension UTType {
 /// fields start from the build rather than from nothing.
 struct AppConfigView: View {
     @EnvironmentObject private var loc: Localizer
+    /// Which build the Install screen is pointed at — the page describes that
+    /// one, never SideInstaller itself.
+    @EnvironmentObject private var engine: Engine
     @ObservedObject private var store = AppConfigStore.shared
     @Environment(\.dismiss) private var dismiss
 
@@ -40,6 +43,9 @@ struct AppConfigView: View {
         var plist: [(key: String, kind: PlistEdit.Kind, text: String)] = []
         var entitlements: [(key: String, text: String)] = []
         var extensions: [String] = []
+        /// The file the values came from, shown so it's clear which build they
+        /// describe.
+        var fileName = ""
         var missing = true
     }
 
@@ -96,6 +102,9 @@ struct AppConfigView: View {
                 .ignoresSafeArea()
             }
             .task { await loadSnapshot() }
+            // Switching the Install tab to another build re-reads that build.
+            .onChange(of: engine.installSource) { _, _ in Task { await loadSnapshot(force: true) } }
+            .onChange(of: engine.installMenuRevision) { _, _ in Task { await loadSnapshot(force: true) } }
         }
     }
 
@@ -103,9 +112,15 @@ struct AppConfigView: View {
 
     /// Reads the imported archive off the main actor: identity, every
     /// top-level plist key, the entitlements and the extension bundles.
-    private func loadSnapshot() async {
+    private func loadSnapshot(force: Bool = false) async {
         guard !isLoading else { return }
-        guard let url = IPALibrary.customImport()?.url else {
+        if !force, !snapshot.fileName.isEmpty, snapshot.fileName == engine.installTargetIPA?.lastPathComponent {
+            return
+        }
+        // The build the Install screen is set to install: a downloaded one, the
+        // custom import, or the selected source's copy on disk. The running
+        // app's own Info.plist is never used.
+        guard let url = engine.installTargetIPA else {
             snapshot = Snapshot()
             return
         }
@@ -114,6 +129,7 @@ struct AppConfigView: View {
             guard let info = IPAPatch.readInfoPlist(from: url) else { return Snapshot() }
             var result = Snapshot()
             result.missing = false
+            result.fileName = url.lastPathComponent
             result.bundleID = info["CFBundleIdentifier"] as? String ?? ""
             result.name = (info["CFBundleDisplayName"] as? String)
                 ?? (info["CFBundleName"] as? String) ?? ""
@@ -134,13 +150,28 @@ struct AppConfigView: View {
             return result
         }.value
         isLoading = false
+        let previous = snapshot
         snapshot = read
-        // Fill identity fields that are still empty, never overwriting an edit.
-        if !read.missing {
-            if store.config.bundleIdentifier.trimmed.isEmpty { store.config.bundleIdentifier = read.bundleID }
-            if store.config.displayName.trimmed.isEmpty { store.config.displayName = read.name }
-            if store.config.version.trimmed.isEmpty { store.config.version = read.version }
-            if store.config.build.trimmed.isEmpty { store.config.build = read.build }
+        guard !read.missing else { return }
+        // A field is filled from the build when it's empty, or when it still
+        // holds the value the *previous* build gave it: that's a leftover, not
+        // an edit, and leaving it would describe the wrong app.
+        func adopt(_ current: String, old: String, new: String) -> String? {
+            if current.trimmed.isEmpty { return new }
+            if !old.isEmpty, current.trimmed == old.trimmed, new != current { return new }
+            return nil
+        }
+        if let value = adopt(store.config.bundleIdentifier, old: previous.bundleID, new: read.bundleID) {
+            store.config.bundleIdentifier = value
+        }
+        if let value = adopt(store.config.displayName, old: previous.name, new: read.name) {
+            store.config.displayName = value
+        }
+        if let value = adopt(store.config.version, old: previous.version, new: read.version) {
+            store.config.version = value
+        }
+        if let value = adopt(store.config.build, old: previous.build, new: read.build) {
+            store.config.build = value
         }
     }
 
@@ -149,10 +180,11 @@ struct AppConfigView: View {
     private var introCard: some View {
         PanelCard {
             VStack(alignment: .leading, spacing: 10) {
-                Text(snapshot.missing ? L("No .ipa imported yet") : L("Read from %@", snapshot.name))
+                Text(snapshot.missing ? L("No .ipa to configure yet")
+                                     : L("Read from %@", snapshot.fileName))
                     .font(.headline)
                 if snapshot.missing {
-                    Text(L("Import a build on the Install tab and its values appear here, ready to change."))
+                    Text(L("Pick a build on the Install tab — or import one — and its values appear here, ready to change. If the Install tab is set to SideStore or LiveContainer, this describes that release's .ipa."))
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 } else {
@@ -188,7 +220,17 @@ struct AppConfigView: View {
     private var identityCard: some View {
         PanelCard {
             VStack(alignment: .leading, spacing: 14) {
-                header(L("Identity"), systemImage: "app.badge")
+                HStack {
+                    header(L("Identity"), systemImage: "app.badge")
+                    Spacer()
+                    Button {
+                        Task { await loadSnapshot(force: true) }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.footnote.weight(.semibold))
+                    }
+                    .buttonStyle(.borderless)
+                }
                 field(L("Bundle ID"), hint: snapshot.bundleID.isEmpty ? "com.example.app" : snapshot.bundleID,
                       text: $store.config.bundleIdentifier)
                 Text(L("A new bundle ID installs alongside the original and registers its own App ID, which a free Apple ID has few of. Extensions are renamed to sit under it."))

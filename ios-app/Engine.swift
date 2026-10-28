@@ -3441,6 +3441,23 @@ final class Engine: ObservableObject {
     // app and installs it over itself, reusing the pipeline's sign and install
     // steps without touching the one-click checklist.
 
+    /// The `.ipa` the Install screen is pointed at, which is the build App
+    /// configuration should describe: whatever this session already downloaded,
+    /// else the custom import, else the copy of the selected build on disk.
+    ///
+    /// Deliberately never the running app's own bundle — the configuration is
+    /// for the build being installed, not for SideInstaller.
+    var installTargetIPA: URL? {
+        if let path = downloadedIPAPath, FileManager.default.fileExists(atPath: path) {
+            let url = URL(fileURLWithPath: path)
+            if IPALibrary.looksLikeIPA(url) { return url }
+        }
+        if installSource == .custom {
+            return IPALibrary.customImport()?.url
+        }
+        return IPALibrary.entry(source: installSource, channel: selectedChannel)?.url
+    }
+
     /// An installed app's icon, from the device itself.
     @MainActor
     func appIcon(bundleID: String, side: CGFloat = 60) async throws -> Data? {
