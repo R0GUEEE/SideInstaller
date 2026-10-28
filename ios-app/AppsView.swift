@@ -484,7 +484,9 @@ final class SideloadedAppsManager: ObservableObject {
     }
 
     nonisolated static func parse(_ appPlists: [[String: Any]], _ profileBlobs: [Data]) -> Parsed {
-        let apps = appPlists.compactMap(SideloadedApp.init(plist:))
+        let apps = appPlists.compactMap {
+            SideloadedApp(plist: $0, kinds: [.sideloaded, .testFlight])
+        }
         let profiles = profileBlobs.compactMap(ProvisioningProfile.init(data:))
         var counts: [SideloadedApp.Kind: Int] = [:]
         for app in apps { counts[app.kind, default: 0] += 1 }
@@ -1096,6 +1098,21 @@ struct AppsView: View {
 
     // MARK: App list
 
+    /// One heading's worth of apps.
+    struct AppSection: Identifiable {
+        let kind: SideloadedApp.Kind
+        let apps: [SideloadedAppStatus]
+        var id: SideloadedApp.Kind { kind }
+    }
+
+    /// TestFlight first, then sideloaded; an empty group is left out.
+    private var sections: [AppSection] {
+        [SideloadedApp.Kind.testFlight, .sideloaded].compactMap { kind in
+            let apps = manager.entries.filter { $0.app.kind == kind }
+            return apps.isEmpty ? nil : AppSection(kind: kind, apps: apps)
+        }
+    }
+
     @ViewBuilder
     private var appList: some View {
         if manager.hasLoaded && manager.entries.isEmpty && !manager.isWorking {
@@ -1121,21 +1138,19 @@ struct AppsView: View {
                 .cascadeItem(4)
                 // Grouped by how they were installed: TestFlight first, then
                 // sideloaded builds, each in expiry order.
-                ForEach(SideloadedApp.Kind.allCases.filter { ($0 == .testFlight || $0 == .sideloaded) && group(of: $0).count > 0 }
-                    .sorted { $0 == .testFlight && $1 != .testFlight }, id: \.self) { kind in
-                    let group = group(of: kind)
+                ForEach(sections) { section in
                     HStack {
-                        Label(kind == .testFlight ? L("TestFlight") : L("Sideloaded"),
-                              systemImage: kind == .testFlight ? "paperplane.fill" : "signature")
+                        Label(section.kind == .testFlight ? L("TestFlight") : L("Sideloaded"),
+                              systemImage: section.kind == .testFlight ? "paperplane.fill" : "signature")
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.secondary)
                         Spacer()
-                        Text("\(group.count)")
+                        Text("\(section.apps.count)")
                             .font(.caption.monospacedDigit())
                             .foregroundStyle(.tertiary)
                     }
                     .padding(.top, 4)
-                    ForEach(group) { status in
+                    ForEach(section.apps) { status in
                         // The row opens the Info sheet rather than pushing a page:
                         // the same details, with the app's actions beside them.
                         Button {
@@ -1203,6 +1218,33 @@ struct AppsView: View {
     /// before, reinstall it, look at its profile, or remove it.
     @ViewBuilder
     private func appMenu(_ status: SideloadedAppStatus) -> some View {
+        // A TestFlight build is provisioned by Apple through the tester's
+        // account; nothing here can re-sign it, and pretending otherwise would
+        // replace a working beta with a copy signed for the wrong purpose.
+        if status.app.kind == .testFlight {
+            Button {
+                launch(status)
+            } label: {
+                Label(L("Open"), systemImage: "arrow.up.forward.app")
+            }
+            Button {
+                infoTarget = status
+            } label: {
+                Label(L("Info"), systemImage: "info.circle")
+            }
+            Divider()
+            Button(role: .destructive) {
+                pendingUninstall = status
+            } label: {
+                Label(L("Delete App"), systemImage: "trash")
+            }
+            return AnyView(EmptyView())
+        }
+        return AnyView(menuBody(status))
+    }
+
+    @ViewBuilder
+    private func menuBody(_ status: SideloadedAppStatus) -> some View {
         Button {
             launch(status)
         } label: {
@@ -1356,7 +1398,7 @@ struct AppsView: View {
                 Spacer(minLength: 8)
                 // The action most people come here for, one tap away: every app
                 // can hand its seven days to this Apple ID, whatever signed it.
-                if let job = manager.job(for: status.app.bundleID) {
+                if status.app.kind == .sideloaded, let job = manager.job(for: status.app.bundleID) {
                     Button {
                         manager.resign(job)
                     } label: {

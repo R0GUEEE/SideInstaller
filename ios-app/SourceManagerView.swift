@@ -26,12 +26,13 @@ struct SourceManagerView: View {
     /// The source pending removal.
     @State private var pendingRemove: SourceStore.Loaded?
     @State private var showImporter = false
-    @State private var showExporter = false
+    @State private var showMarket = false
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 LazyVStack(spacing: 18) {
+                    marketCard
                     bulkCard
                     listCard
                     exportCard
@@ -59,6 +60,10 @@ struct SourceManagerView: View {
             } message: { loaded in
                 Text(L("Its %ld apps leave the marketplace. The source itself isn't changed, and adding it again restores them.", loaded.appCount))
             }
+            .sheet(isPresented: $showMarket) {
+                RepositoryMarketView(store: store)
+                    .environmentObject(loc)
+            }
             .sheet(isPresented: $showImporter) {
                 FileImporterRepresentableView(allowedContentTypes: [.sourceList, .json]) { urls in
                     guard let url = urls.first else { return }
@@ -73,6 +78,37 @@ struct SourceManagerView: View {
                 .ignoresSafeArea()
             }
         }
+    }
+
+    /// The curated repository list, for a new install with nothing in it.
+    private var marketCard: some View {
+        Button {
+            showMarket = true
+        } label: {
+            HStack(spacing: 14) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.brand)
+                    Image(systemName: "storefront.fill")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+                .frame(width: 46, height: 46)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(L("Repository market"))
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text(L("Popular sources to add in one tap"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 4)
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .buttonStyle(.plain)
+        .cardSurface(in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
     // MARK: Bulk add
