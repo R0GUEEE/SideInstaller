@@ -1130,3 +1130,45 @@ sim. The pieces that need a physical device, LocalDevVPN, or a real Apple ID
 signing, install, house_arrest write) are written but **unverified** — they
 cannot run in this environment. No step fakes success; failures surface raw
 errors in the log.
+
+## Sources and the .ipa inspector
+
+Two features added on top of the install pipeline: browsing AltStore sources, and reading an
+`.ipa` before it's signed. Both reuse what was already there rather than adding a second path.
+
+### Sources (`AltSource.swift`, `SourcesView.swift`)
+
+- The format is decoded leniently: **every field is optional except `name`**, because v1 sources
+  repeat the newest release at the app's top level (`version` / `downloadURL` / `size`) while v2
+  keeps everything under `versions`, and community sources omit whatever they like. A source whose
+  `apps` can't be decoded at all is reported as an error instead of being shown empty.
+- Releases are ordered newest-first from `versions` (AltStore publishes oldest-first); a v1 app's
+  top-level release stands in for a missing `versions` array. A release with no usable http(s)
+  `downloadURL` is dropped, since there'd be nothing to install.
+- The **raw JSON** is what's cached on disk, not the decoded models: the models only decode, and
+  re-encoding would silently drop every field they ignore, turning a cached source into a thin one
+  on the next launch. The cache lives in Caches/Sources, keyed by an FNV-1a hash of the URL.
+- Install goes through `Engine.installLinkedIPA(url)`, the same entry point a
+  `sideinstaller://install` link uses — so a source app gets the identical download → inspect →
+  sign → install run, not a parallel implementation.
+- `sideinstaller://source?url=…` is parsed in `DeepLink` and hands the URL to `Engine.sourceToAdd`,
+  which `RootView` uses to switch to the Tools tab; `ToolsView` presents the add sheet with it
+  filled in. Nothing acts on it until the user taps Add.
+
+### Inspect .ipa (`IPAInspector.swift`, `IPAInspectorView.swift`)
+
+- Reads through the zip central directory with `IPALibrary.archiveFiles` / `contents(of:in:)`, the
+  reader the Downloads list already uses: only the members it needs are inflated.
+- **Mach-O**: `cputype`/`cpusubtype` per slice (fat headers included) for the architecture list,
+  `LC_BUILD_VERSION` (platform 2 = iOS) or `LC_VERSION_MIN_IPHONEOS` for the executable's own
+  minimum iOS, and `LC_ENCRYPTION_INFO(_64)`'s `cryptid` for the App Store encryption flag.
+  The magic is read big-endian, so `CFFAEDFE` — how every iOS arm64 binary starts — means the
+  file's own fields are **little**-endian; getting that backwards reads `ncmds` from the wrong
+  place and walks off the header.
+- Verdicts are separated into blockers (can't work) and warnings (works, but probably not as
+  expected) so the Install button can be disabled on blockers alone.
+- `Engine.installLinkedIPA` runs the same inspector on the freshly downloaded custom import and
+  refuses on a blocker before `runOneClick`, which is what keeps an encrypted App Store `.ipa`
+  from registering an App ID.
+- The inspector runs off the main actor (it may SHA-256 an 80 MB file) and the page keeps the
+  parsed report in `@State`; nothing is written to disk.

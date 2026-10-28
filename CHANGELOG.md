@@ -2,6 +2,27 @@
 
 All notable changes to SideInstaller are documented here.
 
+## Unreleased
+
+### Added
+- **Sources: browse an AltStore source and install from it.** Tools › Sources takes any
+  AltStore-format source link (AltStore's own is suggested) and lists the apps it carries, with
+  screenshots and every release the source publishes. Picking one downloads it and installs it
+  with the same run as any other build — signed with your Apple ID, no SideStore needed for the
+  first install. Sources are cached, so the list opens without a network, and a source that fails
+  to refresh says so without losing its last good copy. `sideinstaller://source?url=…` adds one
+  from a link.
+- **Inspect .ipa: read a build before signing it.** Tools › Inspect .ipa reads an archive in
+  place — no unpacking — and reports the bundle ID, version and build, size, file count and
+  SHA-256; the minimum iOS from both the plist and the executable's own Mach-O header, supported
+  platforms and devices, every architecture, and whether the code is still FairPlay-encrypted;
+  the embedded profile and its expiry; and every extension inside. Problems are listed as
+  blockers or warnings: an encrypted App Store build, a build that needs a newer iOS, no arm64
+  slice, a missing bundle ID, an extension with no profile of its own.
+- **A downloaded build is now checked before it's signed.** A link or a source that delivers an
+  encrypted App Store copy, a build for a newer iOS, or an archive with no arm64 code is stopped
+  with the reason, instead of registering an App ID for something that can't run.
+
 ## 1.6.1
 
 ### Added

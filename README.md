@@ -79,6 +79,8 @@ SideInstaller opens three kinds of `sideinstaller://` link, and asks before acti
 
 - `sideinstaller://install?url=<percent-encoded https link to an .ipa>` downloads the IPA as the
   custom .ipa and installs it, for one-tap installs from a website.
+- `sideinstaller://source?url=<percent-encoded https link to a source>` opens **Tools › Sources** with
+  that AltStore source ready to add.
 - `sideinstaller://pairingFile?data=<base64 pairing file>` imports a pairing file. SideStore sends
   one back when asked with `sidestore://pairing?urlname=sideinstaller`, which is what **Get it from
   SideStore** on the Pairing file card does.
@@ -95,6 +97,31 @@ Discord and most chat apps only make `https://` links tappable, so to post an in
 where the IPA downloads from and hands it to `sideinstaller://install`, with a button for when iOS
 doesn't open the app on its own.
 
+
+## Sources
+
+**Tools › Sources** browses AltStore-format sources — the same JSON catalogues AltStore and SideStore
+read — and installs any app they list. Add one by pasting its link (AltStore's own, `apps.altstore.io`,
+is there to start with), then pick an app, pick a release, and tap **Install with SideInstaller**.
+
+It's the same run as any other install: the `.ipa` is downloaded, signed with your Apple ID's
+certificate and put on the iPhone. Nothing else has to be installed first, and no computer is involved.
+Each source is cached, so the list opens without a network and says so when a refresh fails.
+
+## Inspect an .ipa
+
+**Tools › Inspect .ipa** reads an archive without unpacking it and shows what installing it would do:
+
+- **Identity** — bundle ID, name, version and build, size, file count, SHA-256.
+- **Compatibility** — the minimum iOS from both the plist and the executable's own header, supported
+  platforms and devices, every architecture in the binary, and whether its code is still encrypted.
+- **Signing** — the embedded provisioning profile and its expiry, and every app extension inside.
+- **Before you install** — the things that quietly break a sideloaded app, marked as a blocker
+  (App Store-encrypted code, a build for a newer iOS, no arm64 slice, no bundle ID) or a warning
+  (an extension with no profile of its own, a release listing another device family).
+
+Builds downloaded from a link or a source are put through the same check before signing, so an
+encrypted App Store copy is refused instead of using up an App ID.
 
 ## Compatibility
 
