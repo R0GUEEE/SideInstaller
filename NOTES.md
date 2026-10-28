@@ -1642,3 +1642,19 @@ launch); `LogRedactor`'s one `try!` builds a pattern from escaped literals; no `
 `fatalError`; the loopback server and the JIT session both clean up their handles and capture `self`
 weakly in their callbacks.
 
+### Keeping the .ipa, and two more tools
+
+- **Why the cache exists**: a re-sign needs the original `.ipa`. The signed `.app` can't be read back
+  out of another app's container, and a user's download may not survive seven days of Files
+  housekeeping. `IPACache` copies the file after every successful install — and again on every
+  refresh, since a refresh's source is the freshest copy — into `Application Support/IPACache`, not
+  Documents: it's the app's bookkeeping, not something to shuffle in Files.
+- **It joins the library**: `IPALibrary.scan()` now includes cached builds, which is what makes
+  `ProfileMatcher` pair them with installed apps, which is what makes the Re-sign button appear for
+  an app whose download is long gone.
+- **Bounded**: `prune(olderThan: 60 days, keepingUnder: 2 GB)` runs after each store, oldest first.
+  Deleting a copy never touches the installed app; it only means that app can't be renewed until an
+  `.ipa` is supplied again — which the Stored builds page says in as many words.
+- **Stored builds** and **Device** are read-only views over that: list/install/share/delete, and the
+  device's own facts (lockdownd `ProductType`, `BuildVersion`, `UniqueDeviceID`, volume capacity).
+

@@ -5,6 +5,16 @@ All notable changes to SideInstaller are documented here.
 ## Unreleased
 
 ### Added
+- **Installed builds are kept, so they can be re-signed later.** Every `.ipa` SideInstaller installs
+  is copied into `Application Support/IPACache`, keyed by bundle ID — the signed bundle on the device
+  can't be pulled back, and the original download is often gone by the time the seven days run out.
+  The cache is part of the IPA library, so **My Apps › Re-sign** now works for anything installed
+  here. It prunes itself: copies older than sixty days, and the oldest once it passes 2 GB.
+- **Two more tools.** **Stored builds** lists what's cached — install it again, share it, or delete
+  the copy (the app stays installed). **Device** reads the model, iOS build, UDID, free/total storage
+  and the app container's size, with a button to re-read them from the device.
+
+### Added
 - **Renewals: re-signing apps before they expire.** Settings › Renewals switches on a background pass
   (`BGAppRefreshTask`) that finds sideloaded apps whose profile expires within a configurable window
   (6–72 hours, default 24), re-signs the ones whose `.ipa` is still on the device, and posts a
