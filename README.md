@@ -100,8 +100,8 @@ doesn't open the app on its own.
 
 ## Marketplace
 
-**Tools › Marketplace** browses every AltStore-format source you add — the same JSON catalogues
-AltStore and SideStore read. Its left menu lists the categories the sources file apps under
+The **Marketplace** tab browses every AltStore-format source you add — the same JSON catalogues
+AltStore and SideStore read. Its left rail lists the categories the sources file apps under
 (Utilities, Games, Developer, …) and each source, and the grid beside it shows what matches: search
 across every source, tap an app for its screenshots and every release, or install the newest one
 straight from the grid. Add a source by pasting its link (AltStore's own, `apps.altstore.io`, is

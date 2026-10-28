@@ -1229,3 +1229,19 @@ Two features added on top of the install pipeline: browsing AltStore sources, an
   froze. Categories come from the source's own `category` strings, matched loosely and falling
   back to "Other", so an unlisted value never hides an app.
 
+### Marketplace: tab and rail
+
+- **Why categories didn't open**: `NavigationSplitView`'s `List(selection:)` only drives the detail
+  column at regular width. On an iPhone the split view is compact, the sidebar is pushed as its own
+  screen, and selection changes have nowhere to go — rows highlight and nothing else happens.
+  `NavigationLink(value:)` in a sidebar has the same problem: it pushes onto the *sidebar's* stack,
+  not the detail's.
+- The fix is not another navigation style but a plain `HStack`: a 96pt rail of `Button`s that set a
+  `Filter` state, a one-point divider, and the grid. It behaves identically at every size, works
+  inside the tab's `NavigationStack` (so `.searchable` and the settings toolbar still apply), and
+  removes a whole class of "selection did nothing" bugs.
+- The tab is `Page.marketplace` in `RootView`, `.dark` like Tools, so the rail reads as a sidebar.
+  `ToolsView` no longer carries a Marketplace row.
+- An install started from the grid or an app's page closes that page: the run takes over the
+  Install tab, and a sheet left open would sit in front of the progress.
+

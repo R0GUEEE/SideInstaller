@@ -4,6 +4,13 @@ All notable changes to SideInstaller are documented here.
 
 ## Unreleased
 
+### Changed
+- **The marketplace has its own tab**, beside Install and Tools, and its left menu is a rail of
+  buttons rather than a split view's list: a split view's selection doesn't push anything at
+  compact width, which is how an iPhone almost always shows it, so tapping a category did nothing.
+  The rail works at every width, shows how many apps each category and source has, and keeps the
+  search field across all of them.
+
 ### Added
 - **Tweaks can be `.deb` packages.** A package is unpacked (ar → gzip → tar), its `DEBIAN/control`
   read for its name, version and dependencies, and only the libraries it installs are taken — a
