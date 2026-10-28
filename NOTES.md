@@ -1274,3 +1274,26 @@ Two features added on top of the install pipeline: browsing AltStore sources, an
   `libsubstrate`/`ellekit`/`libhooker`/`libsubstitute` to a framework. That covers a bare `.dylib`
   with no control file, and a package whose `Depends` was stripped.
 
+### JIT, merged marketplace entries, and which .ipa the config describes
+
+- **JIT** (`JITSession`): the sequence is launch-suspended → `vAttach` → `c`. DVT process control
+  (`process_control_launch_app`, RSD) starts the app stopped at its entry point; the debug proxy
+  (`debug_proxy_connect_rsd`) speaks GDB-remote to the device's debugger; attaching is what sets
+  `CS_DEBUGGED`, and with it the right to map executable pages. The connection is deliberately kept
+  open and *not* read from: a stopped process gets one stop reply, and a packet aimed at the socket
+  while the app runs would interrupt it. Liveness is checked out of band through
+  `app_service_list_processes`, so quitting the app ends the session rather than hanging it.
+- **Debug packets**: `debugserver_command_new` takes a name plus arguments, and the proxy
+  hex-encodes only the arguments — so a packet with a payload goes in as name `vAttach;` and the
+  hex string as its single argument. Packets with no payload (`c`) go as a bare name.
+- **Merged marketplace entries**: the catalogue is one entry per bundle ID, but it keeps *every*
+  release from every source, each tagged with the source that carries it. The row's menu and the
+  app page pick from that list; de-duplication is by version string so a build two repos both
+  carry is listed once. Sorting is applied after filtering, so it holds for a source's shelf and a
+  category alike.
+- **Install target for the config page**: `Engine.installTargetIPA` is the downloaded build, else
+  the custom import, else the selected source's copy. Reading `IPILibrary.customImport()` alone was
+  why the page described SideInstaller itself: that slot held the app's own .ipa. The page also
+  re-reads when the Install tab's build changes, and replaces identity values that were carried
+  over from the previous build rather than treating them as user edits.
+

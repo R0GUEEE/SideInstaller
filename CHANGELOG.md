@@ -4,6 +4,26 @@ All notable changes to SideInstaller are documented here.
 
 ## Unreleased
 
+### Added
+- **Launch with JIT.** My Apps can start an app under the device's debugger: the app is launched
+  suspended through DVT process control, the debugger attaches over RSD (which is what grants the
+  right to map executable memory), and the session is held open while the app runs — close it, or
+  leave SideInstaller, and JIT ends with it. The row and the Info sheet show the session, its
+  transcript, and the way to stop it.
+- **The marketplace sorts and merges.** One entry per app, with every release from every source
+  merged into it; the row's version menu — and the app's page — pick which release to install. The
+  list can be ordered by name, newest, oldest or size.
+
+### Fixed
+- **App configuration describes the build being installed, not SideInstaller.** It reads the
+  downloaded build, else the custom import, else the selected source's copy on disk, and says which
+  file it read. Values left over from the build it read before are replaced instead of pinned to
+  the wrong app.
+- **App icons in My Apps** come from the device (`app_service`), cached on disk, instead of being
+  a generic glyph.
+- **Re-sign works across teams**: an app installed by another Apple ID, or under a wildcard
+  certificate, is signed here and replaced in place, with a one-tap **Re-sign** on each row.
+
 ### Fixed
 - **A source no longer shows an empty shelf.** The catalogue is de-duplicated by bundle ID so the
   same app doesn't appear twice, but a source's view was filtering that de-duplicated list — so any

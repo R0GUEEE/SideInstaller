@@ -144,6 +144,9 @@ is prepared the same way each time.
   main executable through an added `LC_LOAD_DYLIB` (`LC_LOAD_WEAK_DYLIB` with **Optional** on).
   Rootful and rootless packages both work. Tweaks have to be built for this iPhone — arm64, iOS
   17.4 or later — and injecting one needs room in the Mach-O header, which Xcode builds have.
+- **JIT** — the app is launched suspended under the device's debugger and resumed with the session
+  held open, which is how iOS lets a process map executable memory. Keep SideInstaller running
+  while you use the app.
 - **Injectors** — ElleKit, CydiaSubstrate, libhooker and Substitute. ElleKit and Substitute can be
   fetched from where they're published (a repository `.deb` and a GitHub release); the other two are
   added from a copy you have. A package's dependencies — its `Depends` line, and the libraries it
