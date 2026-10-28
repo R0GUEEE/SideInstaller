@@ -509,7 +509,7 @@ struct AppConfigView: View {
         HStack(spacing: 8) {
             Text("\(count)")
                 .font(.caption.monospacedDigit().weight(.semibold))
-                .foregroundStyle(count > 0 ? color : .tertiary)
+                .foregroundStyle(count > 0 ? AnyShapeStyle(color) : AnyShapeStyle(Color.secondary.opacity(0.6)))
                 .frame(width: 22, alignment: .leading)
             Text(title)
                 .font(.caption)
