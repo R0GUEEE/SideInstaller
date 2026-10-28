@@ -5,6 +5,11 @@ All notable changes to SideInstaller are documented here.
 ## Unreleased
 
 ### Added
+- **Telegram channels, the ones you asked for.** `ipaomtk` is listed with its app write-ups; `ipahub`
+  with its attachments; `binnichtaktivsipas`, `blatants` and `iOS_Randy420` say plainly that their
+  previews are off and offer **Open in Telegram** (`t.me/c/…` links are private and refused with a
+  reason). A post with no attachment but a title and a link — how catalogue channels post — is
+  listed as an app that opens its page.
 - **Telegram channels as sources.** Add `t.me/<channel>` under Sources and its `.ipa` posts appear in
   the marketplace beside everything else, with the file's name, size and date. Telegram mints file
   links per session, so its install button opens the post in Telegram — the only way to get the file

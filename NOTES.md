@@ -1471,3 +1471,23 @@ Two features added on top of the install pipeline: browsing AltStore sources, an
   channel with previews disabled returns no posts — each of those gets its own message rather than
   an empty source.
 
+### What each requested channel actually exposes
+
+Measured against the live previews:
+
+| Channel | Result |
+|---|---|
+| `t.me/ipaomtk` | **Readable.** 20 posts in the preview; every one is a write-up ("Vibes (Not Boring) IPA") linking `ipaomtk.com/...`. Listed as 20 apps whose install opens that page. The pages themselves don't link a plain `.ipa` — downloads go through their own signer — so nothing installs directly. |
+| `t.me/ipahub` | **Readable.** Posts carry `.ipa` documents (name + size in the preview, e.g. "PUBGM CHETO CRACK - KAMOHACKS.ipa", "2 GB"). Opening one goes to the post; Telegram mints the file link per session. |
+| `t.me/binnichtaktivsipas` | **Previews off.** `t.me/s/…` redirects to the join page. Nothing readable without an account; the source says so and offers Open in Telegram. |
+| `t.me/blatants` | Same. |
+| `t.me/iOS_Randy420` | Same. |
+| `t.me/c/2573020932/2` | **Private channel.** `t.me/c/<id>` links carry an internal id that no public URL resolves; refused with an explanation rather than trying `t.me/s/c`. |
+
+- **Bug found while doing this:** posts were split on the exact string
+  `<div class="tgme_widget_message_wrap"`, but Telegram renders
+  `class="tgme_widget_message_wrap js-widget_message_wrap"` — so channels like ipaomtk parsed as
+  zero posts. Splitting on the class name alone fixes it.
+- The preview check is a redirect test: after following redirects, a URL that isn't under `/s/`
+  means the channel has no preview, which is a different failure from "no .ipa in it".
+
