@@ -4,6 +4,29 @@ All notable changes to SideInstaller are documented here.
 
 ## Unreleased
 
+### Fixed
+- **A source no longer shows an empty shelf.** The catalogue is de-duplicated by bundle ID so the
+  same app doesn't appear twice, but a source's view was filtering that de-duplicated list — so any
+  app another source also carried (with a newer release) vanished from this one's shelf. Sources
+  now have their own list, and a source that fails to load says why, in its shelf and with a mark in
+  the rail, instead of looking empty.
+
+### Changed
+- **The marketplace is compact**: single-column rows with the icon, name, developer, category and
+  newest version, and an install button on the row, instead of a grid of tall cards.
+- **My Apps is its own tab**, next to Install and Marketplace, and **About moved into Settings**.
+  Tools keeps Pairing, Certificates, Entitlements, Location, Inspect .ipa and Side by Side.
+- **App configuration starts from the build.** Opening it reads the imported `.ipa` and fills in the
+  identity, every top-level `Info.plist` key, the profile's entitlements and the extension bundles.
+  Tapping a key in the build adds it to the changes, prefilled.
+- **The `Info.plist` editor knows Apple's keys**: typing shows completions with what each key does,
+  the editor follows the key's type, and enumerated keys (orientations, device family, background
+  modes, privacy strings and so on) offer their documented values as pickers.
+- **Tweaks and injectors share one card.** A framework can be fetched where one is published —
+  ElleKit from its repository, Substitute from its GitHub release — or added from a copy; a tweak's
+  dependencies are read from the package's `Depends` and from the libraries it links, so the right
+  framework is loaded with it.
+
 ### Changed
 - **The marketplace has its own tab**, beside Install and Tools, and its left menu is a rail of
   buttons rather than a split view's list: a split view's selection doesn't push anything at

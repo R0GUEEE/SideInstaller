@@ -100,11 +100,11 @@ doesn't open the app on its own.
 
 ## Marketplace
 
-The **Marketplace** tab browses every AltStore-format source you add — the same JSON catalogues
-AltStore and SideStore read. Its left rail lists the categories the sources file apps under
-(Utilities, Games, Developer, …) and each source, and the grid beside it shows what matches: search
-across every source, tap an app for its screenshots and every release, or install the newest one
-straight from the grid. Add a source by pasting its link (AltStore's own, `apps.altstore.io`, is
+The **Marketplace** tab browses every AltStore-format source you add, as compact rows — icon, name,
+developer, category, newest version — with an install button on each row — the same JSON catalogues
+AltStore and SideStore read. Its left rail lists the categories the sources file apps under (Utilities, Games, Developer, …) and
+each source, and the list beside it shows what matches: search across every source, tap an app for
+its screenshots and every release, or install the newest one straight from the row. Add a source by pasting its link (AltStore's own, `apps.altstore.io`, is
 there to start with).
 
 It's the same run as any other install: the `.ipa` is downloaded, signed with your Apple ID's
@@ -144,9 +144,10 @@ is prepared the same way each time.
   main executable through an added `LC_LOAD_DYLIB` (`LC_LOAD_WEAK_DYLIB` with **Optional** on).
   Rootful and rootless packages both work. Tweaks have to be built for this iPhone — arm64, iOS
   17.4 or later — and injecting one needs room in the Mach-O header, which Xcode builds have.
-- **Injectors** — ElleKit, CydiaSubstrate, libhooker and Substitute are added from a copy you have
-  (SideInstaller can't redistribute them). A package's dependencies pick which one is loaded, and
-  it's injected before the tweak.
+- **Injectors** — ElleKit, CydiaSubstrate, libhooker and Substitute. ElleKit and Substitute can be
+  fetched from where they're published (a repository `.deb` and a GitHub release); the other two are
+  added from a copy you have. A package's dependencies — its `Depends` line, and the libraries it
+  links — pick which one is loaded, and it's injected before the tweak.
 - **Backup** — the whole configuration exports to JSON and imports again.
 
 The archive is rewritten in place and only the files that change are re-encoded, so a 100 MB

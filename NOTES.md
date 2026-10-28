@@ -1245,3 +1245,32 @@ Two features added on top of the install pipeline: browsing AltStore sources, an
 - An install started from the grid or an app's page closes that page: the run takes over the
   Install tab, and a sheet left open would sit in front of the progress.
 
+### Source shelves, compact rows, and a plist editor that knows the keys
+
+- **Why a source showed nothing**: `catalog` is de-duplicated by bundle ID (newest release wins) so
+  the "All apps" list doesn't repeat an app carried by three repositories. The source filter then
+  searched *that* list, so every app another source also carried had been replaced by that source's
+  copy and disappeared. Fixed with a second index, `bySource`, filled in the same pass; the rail
+  count and the shelf read from it. A source whose fetch failed now shows the error and a retry in
+  its own shelf, plus a warning mark in the rail, rather than an empty-looking section.
+- **Compact layout**: rows rather than cards. One `HStack` per app (44pt icon, two lines of text,
+  version, install button), so a screen shows about twice as many apps and the install action is
+  reachable without opening anything.
+- **Tabs**: `Page` is install / marketplace / apps / tools. About is a `NavigationLink` inside the
+  Settings form, which is where a version number and credits belong.
+- **Configuration reads the build**: `IPAPatch.readInfoPlist` and `.readEntitlements` use the same
+  central-directory reader as the patcher (xcent first, then the embedded profile's `Entitlements`),
+  all off the main actor. Identity fields fill only when empty, so an edit is never overwritten.
+- **Plist catalogue** (`PlistCatalog`): ~50 documented keys with type, one-line purpose and the
+  values Apple defines. The editor picks the control from the key — switch for booleans, menu for
+  enumerations, checkable list for array keys, text otherwise — and completions show the summary so
+  a key can be chosen without knowing its spelling.
+- **Injector fetching** (`InjectorCatalog`): ElleKit is taken from the community repository's
+  `Packages` index (newest `iphoneos-arm64` stanza, then its `.deb`, unpacked with `DebArchive`);
+  Substitute from its GitHub release asset. Both land as a plain library through `addInjectorData`.
+  CydiaSubstrate and libhooker have no published build, so they're manual by definition.
+- **Dependency analysis**: `MachOInject.linkedLibraries` reads `LC_LOAD_DYLIB`/`LC_LOAD_WEAK_DYLIB`
+  names out of a tweak before it's stored, and `TweakInjectorKind.detected(inLibraries:)` maps
+  `libsubstrate`/`ellekit`/`libhooker`/`libsubstitute` to a framework. That covers a bare `.dylib`
+  with no control file, and a package whose `Depends` was stripped.
+
