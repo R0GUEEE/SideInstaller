@@ -4,6 +4,17 @@ All notable changes to SideInstaller are documented here.
 
 ## Unreleased
 
+### Changed
+- **Telegram channels scan every page by default.** The per-channel depth is now a switch —
+  *Scan every page*, on unless you turn it off — with a forty-page backstop (about eight hundred
+  posts) that stops early when a page brings nothing new.
+- **Icons everywhere.** Every Telegram entry carries a picture: the bridge's per-item preview image
+  when there is one, otherwise the channel's own icon (from the feed, or the preview page's
+  `og:image`). Channel rows in the studio show it too, instead of a generic glyph.
+- **The bridge feed is asked for more, and survives being busy.** `?limit=100` returns ~99 items
+  instead of ten; a 500 (it does that under load) is retried once and then falls back to the plain
+  feed, so a channel is never lost to a transient error.
+
 ### Added
 - **A workaround for channels without web previews.** A public RSS bridge
   (`tg.i-c-a.su`) republishes a channel with `<enclosure>` links to the files themselves, so those

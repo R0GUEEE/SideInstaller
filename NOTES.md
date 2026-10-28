@@ -1573,3 +1573,18 @@ Measured against the live previews:
   iOS also throttles silent audio that never plays anything audible, so it isn't even reliable.
   The UI says this in the card rather than leaving it unexplained.
 
+### Every page, every channel, with pictures
+
+- **Depth**: `Channel.allPages` defaults to true and the scan walks `?before=` until a page repeats
+  or the forty-page backstop hits. The toggle turns it off and brings back the stepper (1–40).
+- **Bridge depth**: its RSS takes `?limit=`; measured — 10 → 10 items, 25 → 25, 50 → 49, 75 → 74,
+  90 → 89, 100 → 99, 120 → 99. So 100 is the request and ~99 the ceiling. It also returns 500 under
+  load, which is why `entries` retries once and then asks for the plain feed: ten items is better
+  than a channel that looks broken.
+- **Icons**: each RSS item's description embeds `<img src="…/media/<channel>/<msg>/preview/thumb.jpeg">`
+  — a per-file preview image, the closest thing to an app icon Telegram publishes. Entries use that,
+  falling back to the channel picture (`<image><url>` in the feed, `og:image` on the preview page,
+  and `tg.i-c-a.su/icon/<channel>/icon.jpg` when neither is present).
+- **Every channel is checked**: the scan reads all channels whose switch is on, keeps going after a
+  failure, and reports per channel — so one dead channel never hides the others' results.
+
