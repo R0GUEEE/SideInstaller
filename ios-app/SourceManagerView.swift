@@ -270,8 +270,18 @@ struct SourceManagerView: View {
                     Text(error)
                         .font(.caption2)
                         .foregroundStyle(.orange)
-                        .lineLimit(2)
+                        .lineLimit(3)
                         .fixedSize(horizontal: false, vertical: true)
+                    if let channel = loaded.telegramChannel,
+                       let link = URL(string: "https://t.me/\(channel)") {
+                        Button {
+                            UIApplication.shared.open(link)
+                        } label: {
+                            Label(L("Open in Telegram"), systemImage: "paperplane")
+                                .font(.caption2.weight(.semibold))
+                        }
+                        .buttonStyle(.borderless)
+                    }
                 }
             }
             Spacer(minLength: 4)

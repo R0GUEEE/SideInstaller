@@ -27,8 +27,13 @@ enum TelegramSource {
         let parts = url.path.split(separator: "/").map(String.init)
         switch url.host?.lowercased() {
         case "t.me", "telegram.me", "www.t.me":
+            // `t.me/c/<id>/<msg>` is a private channel's internal link: it has
+            // no public preview, so there's nothing an unauthenticated reader
+            // can fetch.
+            guard parts.first != "c" else { return nil }
             let name = parts.first == "s" ? parts.dropFirst().first : parts.first
-            guard let name, !name.isEmpty, name != "joinchat", name != "addstickers" else { return nil }
+            guard let name, !name.isEmpty,
+                  !["joinchat", "addstickers", "share", "iv"].contains(name) else { return nil }
             return name
         default:
             return nil
@@ -48,6 +53,11 @@ enum TelegramSource {
         if let http = response as? HTTPURLResponse {
             if http.statusCode == 404 {
                 throw Failure(message: L("Telegram has no public channel called @%@. Check the link, and that the channel isn't private.", channel))
+            }
+            // Telegram redirects `t.me/s/<channel>` to the channel's join page
+            // when its preview is off — which is most channels.
+            if http.statusCode == 302 || http.url?.path.hasPrefix("/s/") == false {
+                throw Failure(message: L("@%@ doesn't publish a web preview, so its posts can't be read here. Telegram only shows this channel inside its app — tap Open in Telegram.", channel))
             }
             guard (200...299).contains(http.statusCode) else {
                 throw Failure(message: L("Telegram answered %ld for @%@.", http.statusCode, channel))
@@ -78,6 +88,14 @@ enum TelegramSource {
                 documents = [(name: direct.lastPathComponent, size: nil as Int64?,
                               sizeText: nil as String?)]
             }
+            // A post that is a write-up with a link rather than an attachment —
+            // how catalogue channels post — still names an app worth listing.
+            var pageLink: URL?
+            if documents.isEmpty, direct == nil {
+                guard let title = headline(of: post.text) else { continue }
+                documents = [(name: title, size: nil as Int64?, sizeText: nil as String?)]
+                pageLink = post.links.first
+            }
             for document in documents {
                 let name = displayName(document.name)
                 guard seen.insert("\(post.id)|\(name)").inserted else { continue }
@@ -93,13 +111,14 @@ enum TelegramSource {
                                           sourceName: title,
                                           direct: true))
                 }
-                // The Telegram route is always offered: it's the only way to
-                // get a file the preview doesn't link.
+                // Where the file isn't linked: the post itself, or the page it
+                // points at. Both are listings, not downloads.
+                let link = pageLink ?? permalink
                 versions.append(.init(id: "tg://\(channel)/\(post.id)/\(name)",
                                       version: version(in: document.name) ?? version(in: post.text),
                                       date: post.date,
                                       size: document.size ?? byteCount(document.sizeText),
-                                      url: permalink.absoluteString,
+                                      url: link.absoluteString,
                                       minOS: nil,
                                       sourceID: "telegram:\(channel)",
                                       sourceName: title,
@@ -136,7 +155,7 @@ enum TelegramSource {
     /// web client renders.
     private static func posts(in html: String) -> [Post] {
         var out: [Post] = []
-        let chunks = html.components(separatedBy: #"<div class="tgme_widget_message_wrap"#)
+        let chunks = html.components(separatedBy: "tgme_widget_message_wrap")
         for chunk in chunks.dropFirst() {
             guard let id = firstMatch(#"data-post="[^/"]+/(\d+)""#, in: chunk) else { continue }
             let date = firstMatch(#"<time[^>]*datetime="([^"]+)""#, in: chunk).flatMap(iso.date(from:))
@@ -163,6 +182,22 @@ enum TelegramSource {
                             links: links))
         }
         return out
+    }
+
+    /// The first real line of a post: how catalogue channels title their apps.
+    /// Emoji and decoration are stripped; "… IPA" loses the suffix.
+    private static func headline(of text: String?) -> String? {
+        guard let text else { return nil }
+        for line in text.split(separator: "\n") {
+            var cleaned = String(line)
+                .replacingOccurrences(of: #"[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]"#,
+                                      with: "", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard cleaned.count >= 3 else { continue }
+            if cleaned.lowercased().hasSuffix(" ipa") { cleaned.removeLast(4) }
+            return String(cleaned.prefix(80))
+        }
+        return nil
     }
 
     /// "Naked.ipa" → "Naked"; the extension is noise in a list of apps.

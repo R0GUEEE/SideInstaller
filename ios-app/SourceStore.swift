@@ -27,6 +27,11 @@ final class SourceStore: ObservableObject {
         /// What it was recognised as when it was added.
         var origin = SourceOrigin(kind: .altSource, store: SourceKind.Store.other.rawValue)
 
+        /// The Telegram channel to open when its posts can't be read.
+        var telegramChannel: String? {
+            origin.kind == .telegram ? TelegramSource.channel(from: url) : nil
+        }
+
         var id: String { url.absoluteString }
         var hasIndex: Bool { appCount > 0 || fetched != nil }
     }
