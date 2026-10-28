@@ -505,7 +505,7 @@ struct AppConfigView: View {
             } else if installed != nil {
                 Button(role: .destructive) {
                     store.removeInjector(kind)
-                    store.injectorStatus[kind] = nil
+                    store.clearInjectorStatus(kind)
                 } label: {
                     Image(systemName: "trash").font(.footnote)
                 }

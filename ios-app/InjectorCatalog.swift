@@ -71,12 +71,14 @@ enum InjectorCatalog {
         switch source {
         case .repository(let index):
             let (packageURL, archive) = try await newestPackage(in: index, matching: kind)
-            let (data, name) = try unpack(archive, kind: kind, preferred: ["ellekit"], fallback: packageURL)
+            let (data, name) = try unpack(archive, kind: kind, preferred: ["ellekit"],
+                                          fallbackName: packageURL.lastPathComponent)
             return (data, name)
         case .gitHub(let owner, let repo):
             let archive = try await gitHubAsset(owner: owner, repo: repo)
             let (data, name) = try unpack(archive.data, kind: kind,
-                                          preferred: [kind.packageName, "substitute"], fallback: archive.name)
+                                          preferred: [kind.packageName, "substitute"],
+                                          fallbackName: archive.name)
             return (data, name)
         }
     }
@@ -117,11 +119,11 @@ enum InjectorCatalog {
         guard let url = URL(string: relative, relativeTo: indexURL.deletingLastPathComponent()) else {
             throw FetchError.damaged(best.filename)
         }
-        let (data, response) = try await get(url)
-        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+        let (debData, debResponse) = try await get(url)
+        if let http = debResponse as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
             throw FetchError.unreachable("HTTP \(http.statusCode)")
         }
-        return (url, data)
+        return (url, debData)
     }
 
     // MARK: GitHub releases
@@ -162,9 +164,9 @@ enum InjectorCatalog {
     /// Takes the library out of a downloaded `.deb`, or passes a `.dylib`
     /// straight through.
     private static func unpack(_ archive: Data, kind: TweakInjectorKind,
-                               preferred: [String], fallback: URL) throws -> (Data, String) {
-        if fallback.pathExtension.lowercased() == "dylib" {
-            return (archive, fallback.lastPathComponent)
+                               preferred: [String], fallbackName: String) throws -> (Data, String) {
+        if (fallbackName as NSString).pathExtension.lowercased() == "dylib" {
+            return (archive, fallbackName)
         }
         // DebArchive reads a file, so the download lands in temp first.
         let temporary = FileManager.default.temporaryDirectory
@@ -178,7 +180,7 @@ enum InjectorCatalog {
                 let name = library.fileName.lowercased()
                 return lowered.contains { name.contains($0) }
             } ?? package.libraries.first
-            guard let match else { throw FetchError.noLibrary(fallback.lastPathComponent) }
+            guard let match else { throw FetchError.noLibrary(fallbackName) }
             return (match.data, match.fileName)
         } catch let error as DebArchive.DebError {
             throw FetchError.damaged(error.localizedDescription)

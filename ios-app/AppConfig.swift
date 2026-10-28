@@ -363,6 +363,11 @@ final class AppConfigStore: ObservableObject {
         }
     }
 
+    /// Drops a framework's last download message when its row changes state.
+    func clearInjectorStatus(_ kind: TweakInjectorKind) {
+        injectorStatus[kind] = nil
+    }
+
     func removeInjector(_ kind: TweakInjectorKind) {
         guard let index = injectors.firstIndex(where: { $0.kind == kind }) else { return }
         let injector = injectors.remove(at: index)
