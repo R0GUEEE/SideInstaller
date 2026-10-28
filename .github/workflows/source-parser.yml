@@ -70,6 +70,11 @@ jobs:
           fetch apptesters https://repository.apptesters.org       && ok=$((ok + 1))
           fetch altstore   https://apps.altstore.io                && ok=$((ok + 1))
           fetch quark      https://quarksources.github.io/altstore-complete.json && ok=$((ok + 1))
+          # One of each foreign shape: GBox, Scarlet's category map, and an
+          # AltStore document that also carries a META block.
+          fetch gbox       https://raw.githubusercontent.com/MisterCron/GboxRepo/main/repo.json && ok=$((ok + 1))
+          fetch scarlet    https://raw.githubusercontent.com/azu0609/repo/main/scarlet_repo.json && ok=$((ok + 1))
+          fetch spotc      "https://raw.githubusercontent.com/SpotCompiled/SpotC-Repo/main/Scarlet%20Repo.json" && ok=$((ok + 1))
           echo "decoded sources to check: $ok, skipped: $skipped"
           test "$ok" -ge 2 || { echo "::error::fewer than two sources could be fetched"; exit 1; }
           /tmp/parser-check "$RUNNER_TEMP"/src/*.json
