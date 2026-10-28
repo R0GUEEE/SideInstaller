@@ -140,7 +140,7 @@ enum IPAInspector {
             : (bundleName?.isEmpty == false ? bundleName! : (bundleID.isEmpty ? app.name : bundleID))
 
         let executable = (info["CFBundleExecutable"] as? String) ?? app.name
-        let binary = data(prefix + executable, max: 256 << 20).map(machO)
+        let binary = data(prefix + executable, max: 256 << 20).flatMap(machO)
         let minimumOS = info["MinimumOSVersion"] as? String
             ?? (info["LSMinimumSystemVersion"] as? String)
         let platforms = info["CFBundleSupportedPlatforms"] as? [String] ?? []

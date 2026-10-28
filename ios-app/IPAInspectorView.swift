@@ -392,7 +392,7 @@ private struct InspectRow: View {
                 .frame(width: 108, alignment: .leading)
             Text(value)
                 .font(mono ? .footnote.monospaced() : .subheadline)
-                .foregroundStyle(warn ? AnyShapeStyle(.orange) : AnyShapeStyle(.primary))
+                .foregroundStyle(AnyShapeStyle(warn ? Color.orange : Color.primary))
                 .multilineTextAlignment(.leading)
                 .lineLimit(wraps ? nil : 1)
                 .truncationMode(.middle)

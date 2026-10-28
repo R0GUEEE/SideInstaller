@@ -477,7 +477,7 @@ struct AltAppView: View {
                 .frame(width: 96, alignment: .leading)
             Text(value)
                 .font(.subheadline)
-                .foregroundStyle(warn ? AnyShapeStyle(.orange) : AnyShapeStyle(.primary))
+                .foregroundStyle(AnyShapeStyle(warn ? Color.orange : Color.primary))
             Spacer(minLength: 0)
         }
     }

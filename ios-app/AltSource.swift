@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 
 /// An AltStore-format source: the JSON that AltStore, SideStore, Feather and
@@ -116,7 +117,7 @@ struct AltApp: Decodable, Identifiable {
                               localizedDescription: localizedDescription,
                               downloadURL: downloadURL, size: size, minOSVersion: nil)]
         }
-        return out.reversed()
+        return Array(out.reversed())
     }
 
     var latest: AltVersion? { releases.first }
@@ -218,7 +219,7 @@ final class SourceStore: ObservableObject {
     private static let defaultsKey = "altsource.urls"
     private let defaults = UserDefaults.standard
     /// One file per source, keyed by the URL's hash so any path is a safe name.
-    private static var cacheDirectory: URL {
+    nonisolated private static var cacheDirectory: URL {
         let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
         return base.appendingPathComponent("Sources", isDirectory: true)
