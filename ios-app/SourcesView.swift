@@ -22,9 +22,10 @@ struct AddSourceSheet: View {
                 VStack(alignment: .leading, spacing: 16) {
                     Text(L("Paste the address of a source"))
                         .font(.headline)
-                    Text(L("It's the link to the source's JSON file — usually ending in .json, or a source's website address (AltStore's own is apps.altstore.io). An altstore://source link works too."))
+                    Text(L("Paste any of these: an AltStore-format JSON link (what AltStore, SideStore, E-Sign, Feather and Scarlet publish), a store's own altstore://source link, a source's website address, or a github.com/owner/repo whose releases carry .ipa files."))
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
 
                     TextField(L("https://apps.altstore.io"), text: $text)
                         .textInputAutocapitalization(.never)
@@ -32,6 +33,22 @@ struct AddSourceSheet: View {
                         .keyboardType(.URL)
                         .focused($focused)
                         .fieldBackground()
+
+                    if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        // What the link looks like before it's fetched: the
+                        // store it names, and which reader will take it.
+                        let origin = SourceOrigin.detect(text)
+                        HStack(spacing: 6) {
+                            Image(systemName: origin.kind == .github ? "chevron.left.forwardslash.chevron.right"
+                                                                     : "shippingbox")
+                                .font(.caption2)
+                            Text(origin.kind == .github
+                                 ? L("GitHub releases")
+                                 : L("%@ source", origin.storeName))
+                                .font(.caption)
+                        }
+                        .foregroundStyle(.secondary)
+                    }
 
                     if let error {
                         Text(error)

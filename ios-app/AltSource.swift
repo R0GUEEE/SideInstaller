@@ -307,6 +307,9 @@ final class SourceStore: ObservableObject {
         var isStale = false
         /// The apps this source marks as featured.
         var featured: Set<String> = []
+        /// What it was recognised as (AltStore JSON, GitHub releases) and which
+        /// store it came from.
+        var origin = SourceOrigin(kind: .altSource, store: SourceKind.Store.other.rawValue)
 
         var id: String { url.absoluteString }
         /// True once anything is known about it.
@@ -401,7 +404,19 @@ final class SourceStore: ObservableObject {
         sources[index].isLoading = true
         defer { if let still = sources.firstIndex(where: { $0.id == id }) { sources[still].isLoading = false } }
         let url = sources[index].url
+        let origin = sources[index].origin
         do {
+            if origin.kind == .github, let parts = GitHubSource.repo(from: url) {
+                let name = sources[index].name
+                let entries = try await GitHubSource.entries(owner: parts.owner, repo: parts.repo,
+                                                             sourceName: name)
+                guard let at = sources.firstIndex(where: { $0.id == id }) else { return }
+                sources[at].error = nil
+                sources[at].fetched = Date()
+                indexBySource[id] = entries
+                sources[at].appCount = entries.count
+                return
+            }
             let fetched = try await Self.fetch(url)
             guard let still = sources.firstIndex(where: { $0.id == id }) else { return }
             sources[still].name = fetched.source.name
@@ -473,27 +488,42 @@ final class SourceStore: ObservableObject {
     /// Adds the source at `text` (a pasted link, or an `altstore://source?url=`
     /// link someone shared). Returns nil on success, or why it couldn't be added.
     @discardableResult
-    func add(_ text: String) async -> String? {
+    func add(_ text: String, origin: SourceOrigin? = nil) async -> String? {
         guard !isAdding else { return nil }
         guard let url = Self.sourceURL(from: text) else {
             return L("That isn't a link to a source. Paste the whole https:// address of the source's JSON file.")
         }
+        let detected = origin ?? SourceOrigin.detect(text)
         if sources.contains(where: { $0.url.absoluteString == url.absoluteString }) {
             return L("%@ is already in the list.", url.host ?? url.absoluteString)
         }
         isAdding = true
         defer { isAdding = false }
         do {
-            let fetched = try await Self.fetch(url)
             var loaded = Loaded(url: url)
-            loaded.name = fetched.source.name
-            loaded.icon = fetched.source.icon
-            loaded.fetched = Date()
-            loaded.featured = Set(fetched.source.featuredApps ?? [])
+            loaded.origin = detected
+            var entries: [MarketEntry] = []
+            switch detected.kind {
+            case .altSource:
+                let fetched = try await Self.fetch(url)
+                loaded.name = fetched.source.name
+                loaded.icon = fetched.source.icon
+                loaded.fetched = Date()
+                loaded.featured = Set(fetched.source.featuredApps ?? [])
+                entries = await Task.detached(priority: .userInitiated) {
+                    MarketEntry.entries(in: fetched.source)
+                }.value
+            case .github:
+                guard let parts = GitHubSource.repo(from: url) else {
+                    return L("That isn't a GitHub repository link. It should look like github.com/owner/repo.")
+                }
+                loaded.name = "\(parts.owner)/\(parts.repo)"
+                entries = try await GitHubSource.entries(owner: parts.owner, repo: parts.repo,
+                                                         sourceName: loaded.name)
+                loaded.icon = URL(string: "https://github.com/\(parts.owner).png?size=120")
+                loaded.fetched = Date()
+            }
             sources.append(loaded)
-            let entries = await Task.detached(priority: .userInitiated) {
-                MarketEntry.entries(in: fetched.source)
-            }.value
             indexBySource[loaded.id] = entries
             if let index = sources.firstIndex(where: { $0.id == loaded.id }) {
                 sources[index].appCount = entries.count
