@@ -82,7 +82,7 @@ enum DebArchive {
         let fields = control.flatMap { member -> [String: String] in
             guard let raw = try? self.tar(member, data: data) else { return [:] }
             guard let entry = raw.first(where: { $0.path.hasSuffix("control") }) else { return [:] }
-            return fields(in: entry.data)
+            return DebArchive.fields(in: entry.data)
         } ?? [:]
 
         let files = try tar(payload, data: data)
