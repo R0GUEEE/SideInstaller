@@ -122,7 +122,6 @@ struct MarketplaceView: View {
                 content
             }
             .background(AppBackground())
-            .safeAreaInset(edge: .bottom, spacing: 0) { filterBar }
             .toolbar { settingsToolbarItem(isPresented: $showSettings) }
             .sheet(item: $selected) { app in
                 NavigationStack {
@@ -155,8 +154,9 @@ struct MarketplaceView: View {
 
     // MARK: The top of the screen
 
-    /// Heading, search, and the two menus that replace the rail: where to look
-    /// (all, featured, a category, a source) and how to order what's there.
+    /// Three things and nothing else: all apps, a filter box, and the sources
+    /// manager. Sorting moved into the filter box, where it belongs — it's a
+    /// view option, not a place to look.
     private var topBar: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -166,74 +166,35 @@ struct MarketplaceView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 0)
-            }
-
-            HStack(spacing: 8) {
-                HStack(spacing: 6) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    TextField(L("Search every source"), text: $query)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .font(.subheadline)
-                    if !query.isEmpty {
-                        Button { query = "" } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundStyle(.tertiary)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 9)
-                .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(.white.opacity(0.06)))
-
-                Menu {
-                    Picker(L("Sort by"), selection: $sort) {
-                        ForEach(SortOrder.allCases) { order in
-                            Label(order.title, systemImage: order.icon).tag(order)
-                        }
-                    }
+                Button {
+                    showManageSources = true
                 } label: {
-                    Image(systemName: "arrow.up.arrow.down")
-                        .font(.subheadline.weight(.semibold))
-                        .frame(width: 38, height: 38)
-                        .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(.white.opacity(0.06)))
+                    Label(L("Sources"), systemImage: "shippingbox")
+                        .font(.caption.weight(.semibold))
                         .foregroundStyle(Theme.accent2)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(L("Sort by %@", sort.title))
+                .accessibilityLabel(L("Manage sources"))
             }
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    sourceChip(.all, title: L("All apps"), icon: "square.grid.2x2.fill",
-                               count: store.entries.count)
-                    if featuredCount > 0 {
-                        sourceChip(.featured, title: L("Featured"), icon: "star.fill",
-                                   count: featuredCount)
-                    }
-                    ForEach(store.sources) { loaded in
-                        sourceChip(.source(loaded.id), title: loaded.name,
-                                   icon: "shippingbox.fill", count: store.count(for: loaded.id),
-                                   failed: loaded.error != nil)
-                    }
-                    Button {
-                        showManageSources = true
-                    } label: {
-                        Label(L("Sources"), systemImage: "slider.horizontal.3")
-                            .font(.caption.weight(.semibold))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 7)
-                            .background(Capsule().fill(.white.opacity(0.06)))
-                            .foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
+            HStack(spacing: 8) {
+                // All apps: the unfiltered list, one tap from anywhere.
+                Button {
+                    query = ""
+                    filter = .all
+                } label: {
+                    Image(systemName: "square.grid.2x2.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(width: 38, height: 38)
+                        .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(isShowingAll ? AnyShapeStyle(Theme.brand)
+                                               : AnyShapeStyle(Color.white.opacity(0.06))))
+                        .foregroundStyle(isShowingAll ? AnyShapeStyle(.white) : AnyShapeStyle(.secondary))
                 }
-                .padding(.vertical, 2)
+                .buttonStyle(.plain)
+                .accessibilityLabel(L("All apps"))
+
+                filterBox
             }
         }
         .padding(.horizontal, 16)
@@ -241,85 +202,126 @@ struct MarketplaceView: View {
         .padding(.bottom, 8)
     }
 
-    /// One chip in the source row: all, featured, or a source.
-    private func sourceChip(_ value: Filter, title: String, icon: String, count: Int,
-                            failed: Bool = false) -> some View {
-        let selected = (filter ?? .all) == value
-        return Button {
-            filter = value
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: icon)
-                    .font(.caption2.weight(.semibold))
-                Text(title)
-                    .font(.caption.weight(.semibold))
-                    .lineLimit(1)
-                if failed {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.caption2)
-                        .foregroundStyle(selected ? AnyShapeStyle(Color.white) : AnyShapeStyle(Color.orange))
-                } else if count > 0 {
-                    Text("\(count)")
-                        .font(.caption2.monospacedDigit())
-                        .foregroundStyle(selected ? AnyShapeStyle(Color.white.opacity(0.8))
-                                                  : AnyShapeStyle(.tertiary))
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 7)
-            .foregroundStyle(selected ? AnyShapeStyle(.white) : AnyShapeStyle(.secondary))
-            .background(Capsule().fill(selected ? AnyShapeStyle(Theme.brand)
-                                                : AnyShapeStyle(Color.white.opacity(0.06))))
-        }
-        .buttonStyle(.plain)
+    private var isShowingAll: Bool {
+        (filter ?? .all) == .all && query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    /// The categories, as a bar along the bottom: they're a secondary filter,
-    /// and a bar there keeps the top row to what changes most.
-    private var filterBar: some View {
-        let categories = MarketCategory.all.filter { (categoryCounts[$0.id] ?? 0) > 0 }
-        return Group {
-            if !categories.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        categoryChip(nil, title: L("Every category"), icon: "square.grid.2x2")
-                        ForEach(categories) { category in
-                            categoryChip(category, title: category.title, icon: category.icon)
+    /// One field that filters: typing searches, and the menu beside it picks
+    /// where to search — every source, one source, a category, featured — and
+    /// how to order the result.
+    private var filterBox: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "line.3.horizontal.decrease.circle")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.secondary)
+            TextField(placeholder, text: $query)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .font(.subheadline)
+            if !query.isEmpty {
+                Button { query = "" } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+            }
+            Menu {
+                Section(L("Show")) {
+                    Button { filter = .all } label: {
+                        Label(L("Every source"), systemImage: marker((filter ?? .all) == .all))
+                    }
+                    if featuredCount > 0 {
+                        Button { filter = .featured } label: {
+                            Label(L("Featured (%ld)", featuredCount),
+                                  systemImage: marker(isFilter(.featured)))
                         }
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
+                    let categories = MarketCategory.all.filter { (categoryCounts[$0.id] ?? 0) > 0 }
+                    if !categories.isEmpty {
+                        Menu {
+                            ForEach(categories) { category in
+                                Button {
+                                    filter = .category(category.id)
+                                } label: {
+                                    Label("\(category.title) (\(categoryCounts[category.id] ?? 0))",
+                                          systemImage: marker(isCategory(category.id)))
+                                }
+                            }
+                        } label: {
+                            Label(isCategoryActive ? L("Category: %@", activeLabel) : L("Category"),
+                                  systemImage: "square.grid.2x2")
+                        }
+                    }
                 }
-                .background(.ultraThinMaterial)
+                Section(L("Source")) {
+                    ForEach(store.sources) { loaded in
+                        Button {
+                            filter = .source(loaded.id)
+                        } label: {
+                            Label("\(loaded.name.isEmpty ? (loaded.url.host ?? L("Source")) : loaded.name) (\(store.count(for: loaded.id)))",
+                                  systemImage: marker(isSource(loaded.id)))
+                        }
+                    }
+                }
+                Section(L("Sort")) {
+                    ForEach(SortOrder.allCases) { order in
+                        Button { sort = order } label: {
+                            Label(order.title, systemImage: marker(sort == order))
+                        }
+                    }
+                }
+            } label: {
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Theme.accent2)
+                    .frame(width: 28, height: 28)
             }
         }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .fill(.white.opacity(0.06)))
     }
 
-    private func categoryChip(_ category: MarketCategory?, title: String, icon: String) -> some View {
-        let active: Bool = {
-            guard let category else {
-                if case .category = filter ?? .all { return false }
-                return true
-            }
-            if case .category(let id) = filter ?? .all { return id == category.id }
-            return false
-        }()
-        return Button {
-            if let category {
-                filter = .category(category.id)
-            } else if case .category = filter ?? .all {
-                filter = .all
-            }
-        } label: {
-            Label(title, systemImage: icon)
-                .font(.caption.weight(.semibold))
-                .padding(.horizontal, 11)
-                .padding(.vertical, 6)
-                .foregroundStyle(active ? AnyShapeStyle(.white) : AnyShapeStyle(.secondary))
-                .background(Capsule().fill(active ? AnyShapeStyle(Theme.accent2.opacity(0.85))
-                                                  : AnyShapeStyle(Color.white.opacity(0.06))))
+    /// A checkmark for the active choice, an empty slot for the rest.
+    private func marker(_ active: Bool) -> String {
+        active ? "checkmark.circle.fill" : "circle"
+    }
+
+    private func isFilter(_ value: Filter) -> Bool { (filter ?? .all) == value }
+
+    private func isSource(_ id: String) -> Bool {
+        if case .source(let current) = filter ?? .all { return current == id }
+        return false
+    }
+
+    private func isCategory(_ id: String) -> Bool {
+        if case .category(let current) = filter ?? .all { return current == id }
+        return false
+    }
+
+    private var isCategoryActive: Bool {
+        if case .category = filter ?? .all { return true }
+        return false
+    }
+
+    private var activeLabel: String {
+        if case .category(let id) = filter ?? .all {
+            return MarketCategory.all.first { $0.id == id }?.title ?? L("Category")
         }
-        .buttonStyle(.plain)
+        return L("Category")
+    }
+
+    /// What the field says it searches, which follows the filter.
+    private var placeholder: String {
+        switch filter ?? .all {
+        case .all:              return L("Filter apps")
+        case .featured:         return L("Filter featured")
+        case .category(let id): return L("Filter %@", MarketCategory.all.first { $0.id == id }?.title ?? L("apps"))
+        case .source(let id):
+            let name = store.sources.first { $0.id == id }?.name ?? L("this source")
+            return L("Filter %@", name)
+        }
     }
 
     // MARK: The grid
@@ -400,8 +402,6 @@ struct MarketplaceView: View {
                 }
             }
             .padding(16)
-            // Room for the category bar pinned along the bottom.
-            .padding(.bottom, 48)
         }
         .refreshable { await store.refreshAll() }
     }
