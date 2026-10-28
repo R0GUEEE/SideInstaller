@@ -4,6 +4,32 @@ All notable changes to SideInstaller are documented here.
 
 ## Unreleased
 
+### Changed
+- **A big source no longer freezes the browser.** The app list is built lazily, so only the rows
+  on screen exist; each source's apps are sorted once when it loads instead of on every redraw;
+  icons come from a small in-memory cache instead of being re-fetched and re-decoded per row; the
+  JSON is decoded off the main thread, both when a source is fetched and when its cached copy is
+  read at launch. The entrance cascade is capped as well — it used to delay each row by another
+  55 ms, so the four-hundredth app in a source stayed invisible for twenty seconds.
+- **Importing another .ipa starts the Install screen over.** A new import clears the last run's
+  error, its finished card, its progress and its steps, closes the link field and the Advanced
+  section, and selects the custom build — the menu is for the app that's about to be installed,
+  not the one before it.
+
+### Added
+- **App configuration for the custom .ipa**, in Install › Advanced. Before signing, SideInstaller
+  can give the build a new bundle ID (with its extensions re-prefixed to match), a new display
+  name, version and build number; remove its app extensions or its Watch app; and inject tweaks.
+  A tweak is a `.dylib` copied into the app's `Frameworks` folder and loaded by its main
+  executable through an added `LC_LOAD_DYLIB` (or `LC_LOAD_WEAK_DYLIB`), the same mechanism a
+  jailbreak tweak uses. The archive is rewritten in place — every file the change doesn't touch is
+  copied as its original compressed bytes — and applying the same configuration twice changes
+  nothing the second time.
+- **A patcher self-test in CI** (`patch-selftest`): builds a small arm64 `.ipa`, applies a rename
+  and an injection through `IPAPatch`, and checks the result with `unzip -t`, `plutil` and
+  `otool -l`, including that an untouched resource is still byte-identical and that a second pass
+  injects nothing.
+
 ### Added
 - **Sources: browse an AltStore source and install from it.** Tools › Sources takes any
   AltStore-format source link (AltStore's own is suggested) and lists the apps it carries, with

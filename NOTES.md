@@ -1172,3 +1172,33 @@ Two features added on top of the install pipeline: browsing AltStore sources, an
   from registering an App ID.
 - The inspector runs off the main actor (it may SHA-256 an 80 MB file) and the page keeps the
   parsed report in `@State`; nothing is written to disk.
+
+### Fixes and the app configuration (second pass)
+
+- **The source browser froze on big repositories.** Four separate costs, all fixed: `VStack`
+  built every row eagerly (`LazyVStack` now); `installableApps` sorted and rebuilt release lists
+  on every body pass (both are computed once, at decode); `AsyncImage` per row re-requested and
+  re-decoded icons on each pass (a `NSCache`-backed `SourceIcon` instead); and the JSON was
+  decoded on the main actor on fetch *and* on cached load (both now `Task.detached`). The
+  `.cascadeItem(index)` entrance delay is 55 ms × index, which for row 400 is 22 seconds — list
+  rows cap it at 7.
+- **`Engine.beginFreshInstallMenu()`** runs on a successful import and does what `resetRun()`
+  does, plus dropping the adopted IPA paths so the download step picks up the new file, selecting
+  `.custom`, and bumping `installMenuRevision`, which `ContentView` watches to clear its own
+  `@State` (link field, Advanced open, expanded steps).
+- **`IPAPatch`** rewrites the `.ipa` itself rather than extracting and re-zipping: the central
+  directory is read, unchanged members are copied as their compressed bytes (their local headers
+  rewritten so a data descriptor is no longer needed), and only changed files are written stored.
+  CRC-32 is computed in-app; the output is a plain zip with no ZIP64, which is what every
+  extractor in the pipeline expects.
+- **Mach-O injection** needs no data shifting. The new `dylib_command` is written into the gap
+  between the end of the load commands and the first `__TEXT` section's file offset — the padding
+  Xcode leaves — and only `ncmds`/`sizeofcmds` change. `MachOInject` refuses (with a clear
+  message) when a binary has no room, rather than shifting segment offsets. Injection is skipped
+  when a command already names the library, so re-applying a configuration is a no-op.
+- **Verification**: `patch-selftest.yml` builds a sample arm64 `.ipa` on a macOS runner, patches
+  it through the same `IPAPatch` the app uses, and asserts with `unzip -t`, `plutil` and
+  `otool -l` that the archive stays valid, the identity and extension IDs are rewritten, the
+  Watch app is gone, `LC_LOAD_DYLIB` names the injected path, an untouched resource is
+  byte-identical, and a second pass injects nothing.
+

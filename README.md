@@ -123,6 +123,24 @@ Each source is cached, so the list opens without a network and says so when a re
 Builds downloaded from a link or a source are put through the same check before signing, so an
 encrypted App Store copy is refused instead of using up an App ID.
 
+## App configuration
+
+**Install › Advanced › App configuration** changes what goes into a custom `.ipa` before it's
+signed. Every field is optional, and the configuration stays until it's cleared, so the same build
+is prepared the same way each time.
+
+- **Identity** — a new bundle ID (installs alongside the original; extensions are re-prefixed to
+  match, and the new ID is registered as its own App ID), display name, version and build number.
+- **Structure** — drop the app's extensions, or its Watch app.
+- **Tweaks** — add `.dylib` files, each copied into the app's `Frameworks` folder and loaded by
+  its main executable through an added `LC_LOAD_DYLIB` (`LC_LOAD_WEAK_DYLIB` with **Optional**
+  on). Tweaks have to be built for this iPhone — arm64 or arm64e, iOS 17.4 or later — and
+  injecting one needs room in the Mach-O header, which Xcode builds have.
+
+The archive is rewritten in place and only the files that change are re-encoded, so a 100 MB
+`.ipa` costs a few megabytes of work. Applying the same configuration again is a no-op: the
+identity is already set and the library is already loaded.
+
 ## Compatibility
 
 | iOS | Is it compatible? |
