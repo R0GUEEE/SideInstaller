@@ -3504,8 +3504,12 @@ final class Engine: ObservableObject {
 
     /// Prepares for a refresh: checks iOS and credentials, opens the device link
     /// (which provides the UDID for signing), and signs in.
+    ///
+    /// `interactive` is false for a background pass, which can't put a 2FA sheet
+    /// on screen: a session that has to ask for a code is reported as needing the
+    /// app rather than silently attempted.
     @MainActor
-    func prepareRefresh() async throws {
+    func prepareRefresh(interactive: Bool = true) async throws {
         guard osSupported else {
             throw EngineError.message(L("iOS %@ isn't supported — SideInstaller needs iOS %@ or later.",
                                         osVersionText, Engine.minimumTunnelOSText))
@@ -3514,7 +3518,16 @@ final class Engine: ObservableObject {
             throw EngineError.message(L("No Apple ID saved. Add one in Settings › Account."))
         }
         try await ensurePairingConnection()
+        if !interactive, appleSessionNeedsAttention {
+            throw EngineError.message(L("Signing in needs your attention (a verification code). Open SideInstaller to finish it."))
+        }
         try await signIn(updatingChecklist: false)
+    }
+
+    /// True when a sign-in is waiting on a code the user has to type.
+    var appleSessionNeedsAttention: Bool {
+        if case .asking = twoFactor { return true }
+        return false
     }
 
     /// Re-signs `ipaPath` (issuing a new provisioning profile) and installs it

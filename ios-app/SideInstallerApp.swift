@@ -27,6 +27,9 @@ struct SideInstallerApp: App {
         // launching, so it's first.
         BackgroundKeepAlive.shared.register()
         BackgroundKeepAlive.shared.scheduleRefresh()
+        // Renewing apps before their profile lapses.
+        AutoResign.shared.register()
+        AutoResign.shared.schedule()
         // Settings can start the local server and scan the channels with the
         // app, so both go through the objects the screens use.
         let settings = AppSettings.shared

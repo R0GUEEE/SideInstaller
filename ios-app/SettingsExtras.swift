@@ -21,6 +21,11 @@ extension SettingsView {
                 Label(L("Marketplace"), systemImage: "square.grid.2x2")
             }
             NavigationLink {
+                RenewalSettingsView()
+            } label: {
+                Label(L("Renewals"), systemImage: "clock.arrow.circlepath")
+            }
+            NavigationLink {
                 StorageSettingsView()
             } label: {
                 Label(L("Storage"), systemImage: "internaldrive")
@@ -295,5 +300,75 @@ struct StorageSettingsView: View {
         } message: { item in
             Text(L("%@ (%@) is deleted. It's rebuilt the next time it's needed.", item.name, item.sizeText))
         }
+    }
+}
+
+// MARK: - Renewals
+
+/// Keeping sideloaded apps from expiring: what the background pass does, and
+/// what it can't.
+struct RenewalSettingsView: View {
+    @EnvironmentObject private var loc: Localizer
+    @ObservedObject private var settings = AppSettings.shared
+    @ObservedObject private var renewals = AutoResign.shared
+
+    @State private var note: String?
+    @State private var isRunning = false
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle(isOn: Binding(get: { settings.autoResignEnabled },
+                                     set: { settings.autoResignEnabled = $0 })) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(L("Renew apps before they expire"))
+                        Text(L("A free Apple ID's profile lasts seven days. This wakes the app in the background and re-signs the ones that are close, so they keep launching."))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Stepper(value: Binding(get: { settings.autoResignHoursBefore },
+                                       set: { settings.autoResignHoursBefore = $0 }),
+                        in: 6...72, step: 6) {
+                    Text(L("Renew within %ld hours of expiry", settings.autoResignHoursBefore))
+                }
+                LabeledContent(L("Right now"), value: renewals.pendingDescription())
+            } header: {
+                Text(L("Schedule"))
+            } footer: {
+                Text(L("iOS decides when a background app may run, and may skip it entirely. Renewing also needs a live Apple session: if sign-in is waiting on a verification code, the pass stops and tells you to open the app."))
+            }
+
+            Section {
+                Button {
+                    isRunning = true
+                    Task {
+                        note = await renewals.run(interactive: true)
+                        isRunning = false
+                    }
+                } label: {
+                    HStack {
+                        Label(L("Renew expiring apps now"), systemImage: "arrow.clockwise")
+                        Spacer()
+                        if isRunning { ProgressView().controlSize(.small) }
+                    }
+                }
+                .disabled(isRunning || renewals.isRunning)
+
+                if let last = renewals.lastRun {
+                    LabeledContent(L("Last pass"),
+                                   value: last.formatted(date: .abbreviated, time: .shortened))
+                }
+                if let summary = note ?? renewals.lastSummary {
+                    Text(summary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } header: {
+                Text(L("Now"))
+            }
+        }
+        .navigationTitle(L("Renewals"))
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
