@@ -1,3 +1,4 @@
+import Compression
 import Foundation
 
 /// Rewrites a custom `.ipa` in place before it's signed: a new identity, no
