@@ -207,7 +207,7 @@ struct MarketplaceView: View {
                 if count > 0 {
                     Text("\(count)")
                         .font(.caption2.monospacedDigit())
-                        .foregroundStyle(selected ? .white.opacity(0.8) : .tertiary)
+                        .foregroundStyle(selected ? AnyShapeStyle(Color.white.opacity(0.8)) : AnyShapeStyle(.tertiary))
                 }
             }
             .frame(maxWidth: .infinity)
