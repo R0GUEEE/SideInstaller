@@ -78,4 +78,6 @@ jobs:
           fetch spotc      "https://raw.githubusercontent.com/SpotCompiled/SpotC-Repo/main/Scarlet%20Repo.json" && ok=$((ok + 1))
           echo "decoded sources to check: $ok, skipped: $skipped"
           test "$ok" -ge 2 || { echo "::error::fewer than two sources could be fetched"; exit 1; }
-          /tmp/parser-check "$RUNNER_TEMP"/src/*.json
+          # Vendored samples of the shapes no live fetch guarantees: Scarlet's
+          # category map, GBox's metadata and an E-Sign-style bare array.
+          /tmp/parser-check "$RUNNER_TEMP"/src/*.json tools/parser-check/samples/*.json
