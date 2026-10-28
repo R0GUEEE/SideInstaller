@@ -8,14 +8,15 @@ struct RootView: View {
     /// The tabs and their backdrop level. The selection is tracked so a tab
     /// switch can animate `Backdrop` to the new level.
     private enum Page: Hashable {
-        case install, tools, about
+        case install, marketplace, tools, about
 
         var wash: Backdrop.Level {
             switch self {
-            case .install: .bright
-            case .tools:   .dark
+            case .install:     .bright
+            case .marketplace: .dark
+            case .tools:       .dark
             // Same as Install, so switching between them doesn't change the backdrop.
-            case .about:   .bright
+            case .about:       .bright
             }
         }
     }
@@ -83,6 +84,9 @@ struct RootView: View {
             ContentView()
                 .tabItem { Label(L("Install"), systemImage: "square.and.arrow.down") }
                 .tag(Page.install)
+            MarketplaceView(store: sourceStore)
+                .tabItem { Label(L("Marketplace"), systemImage: "square.grid.2x2.fill") }
+                .tag(Page.marketplace)
             ToolsView(pairingManager: pairingManager,
                       certManager: certManager,
                       locationManager: locationManager,
@@ -544,19 +548,12 @@ struct ToolsView: View {
                     .buttonStyle(.plain)
                     .cascadeItem(rowIndex(5))
                     NavigationLink {
-                        MarketplaceView(store: sourceStore)
-                    } label: {
-                        ToolRow(icon: "square.grid.2x2.fill", title: L("Marketplace"))
-                    }
-                    .buttonStyle(.plain)
-                    .cascadeItem(rowIndex(6))
-                    NavigationLink {
                         IPAInspectorView()
                     } label: {
                         ToolRow(icon: "doc.text.magnifyingglass", title: L("Inspect .ipa"))
                     }
                     .buttonStyle(.plain)
-                    .cascadeItem(rowIndex(7))
+                    .cascadeItem(rowIndex(6))
                 }
                 // No bottom padding: the tab bar's inset already clears the last
                 // row, and the extra 20pt would make a page that fits scroll.

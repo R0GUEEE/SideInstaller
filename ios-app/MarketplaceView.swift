@@ -85,92 +85,147 @@ struct MarketplaceView: View {
     @State private var showSettings = false
 
     var body: some View {
-        NavigationSplitView {
-            sidebar
-                .navigationTitle(L("Marketplace"))
-                .navigationBarTitleDisplayMode(.inline)
-        } detail: {
-            detail
-        }
-        .navigationSplitViewStyle(.balanced)
-        .sheet(item: $selected) { listing in
-            NavigationStack {
-                AltAppView(app: listing.app, source: listing.source)
-                    .toolbar {
-                        ToolbarItem(placement: .confirmationAction) {
-                            Button(L("Done")) { selected = nil }
+        NavigationStack {
+            HStack(spacing: 0) {
+                rail
+                Rectangle()
+                    .fill(Color(.separator))
+                    .frame(width: 1)
+                content
+            }
+            .background(AppBackground())
+            .toolbar { settingsToolbarItem(isPresented: $showSettings) }
+            .sheet(item: $selected) { listing in
+                NavigationStack {
+                    AltAppView(app: listing.app, source: listing.source)
+                        .toolbar {
+                            ToolbarItem(placement: .confirmationAction) {
+                                Button(L("Done")) { selected = nil }
+                            }
                         }
-                    }
+                }
+            }
+            .sheet(isPresented: $showAdd) { AddSourceSheet(store: store) }
+            .sheet(isPresented: $showSettings) { SettingsView() }
+            .onAppear {
+                store.load()
+                rebuild()
+            }
+            .onChange(of: store.sources.map(\.id)) { _, _ in rebuild() }
+            .onChange(of: store.sources.map(\.appCount)) { _, _ in rebuild() }
+            // An install takes over the Install tab, so the app's page closes
+            // itself rather than sitting over the run's progress.
+            .onChange(of: engine.isRunning) { _, running in
+                if running { selected = nil }
             }
         }
-        .sheet(isPresented: $showAdd) { AddSourceSheet(store: store) }
-        .sheet(isPresented: $showSettings) { SettingsView() }
-        .onAppear {
-            store.load()
-            rebuild()
-        }
-        .onChange(of: store.sources.map(\.id)) { _, _ in rebuild() }
-        .onChange(of: store.sources.map(\.appCount)) { _, _ in rebuild() }
     }
 
-    // MARK: Sidebar
+    // MARK: The left menu
 
-    private var sidebar: some View {
-        List(selection: $filter) {
-            Section(L("Browse")) {
-                row(.all, title: L("All apps"), icon: "square.grid.2x2.fill", count: catalog.count)
+    /// A rail rather than a `List`: a split view's selection doesn't push
+    /// anything at compact width, which is how this screen is almost always
+    /// seen, and rows that don't open are worse than no rows. Buttons work at
+    /// every width.
+    private var rail: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            LazyVStack(alignment: .leading, spacing: 4) {
+                Text(L("Browse"))
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+                    .padding(.horizontal, 10)
+                    .padding(.top, 8)
+
+                railButton(.all, title: L("All apps"), icon: "square.grid.2x2.fill",
+                           count: catalog.count)
                 if !featuredIDs.isEmpty {
-                    row(.featured, title: L("Featured"), icon: "star.fill",
-                        count: catalog.filter { featuredIDs.contains($0.app.bundleIdentifier ?? "") }.count)
+                    railButton(.featured, title: L("Featured"), icon: "star.fill",
+                               count: catalog.filter { featuredIDs.contains($0.app.bundleIdentifier ?? "") }.count)
                 }
-            }
-            let categories = presentCategories
-            if !categories.isEmpty {
-                Section(L("Categories")) {
+
+                let categories = presentCategories
+                if !categories.isEmpty {
+                    Text(L("Categories"))
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                        .padding(.horizontal, 10)
+                        .padding(.top, 12)
                     ForEach(categories) { category in
-                        row(.category(category.id), title: category.title, icon: category.icon,
-                            count: catalog.filter { MarketCategory.of($0.app.category) == category }.count)
+                        railButton(.category(category.id), title: category.title, icon: category.icon,
+                                   count: catalog.filter { MarketCategory.of($0.app.category) == category }.count)
                     }
                 }
-            }
-            Section(L("Sources")) {
+
+                Text(L("Sources"))
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+                    .padding(.horizontal, 10)
+                    .padding(.top, 12)
                 ForEach(store.sources) { loaded in
-                    row(.source(loaded.id), title: loaded.name, icon: "shippingbox.fill",
-                        count: loaded.appCount)
+                    railButton(.source(loaded.id), title: loaded.name, icon: "shippingbox.fill",
+                               count: loaded.appCount)
                 }
                 Button {
                     showAdd = true
                 } label: {
-                    Label(L("Add a source"), systemImage: "plus.circle.fill")
-                        .font(.subheadline)
+                    VStack(spacing: 4) {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.system(size: 18, weight: .semibold))
+                        Text(L("Add source"))
+                            .font(.caption2)
+                            .lineLimit(1)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 9)
+                    .foregroundStyle(Theme.accent2)
                 }
                 .buttonStyle(.plain)
+                .padding(.horizontal, 6)
+                .padding(.top, 6)
             }
+            .padding(.vertical, 8)
         }
-        .listStyle(.sidebar)
-        .refreshable { await store.refreshAll() }
-        .toolbar { settingsToolbarItem(isPresented: $showSettings) }
+        .frame(width: 96)
+        // The rail is its own column: on iPad's wider layout the same width
+        // keeps the grid roomy.
+        .background(.black.opacity(0.12))
     }
 
-    private func row(_ value: Filter, title: String, icon: String, count: Int) -> some View {
-        Label {
-            HStack {
+    private func railButton(_ value: Filter, title: String, icon: String, count: Int) -> some View {
+        let selected = (filter ?? .all) == value
+        return Button {
+            filter = value
+        } label: {
+            VStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.system(size: 17, weight: .semibold))
                 Text(title)
-                Spacer()
-                Text("\(count)")
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.tertiary)
+                    .font(.caption2)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                    .minimumScaleFactor(0.8)
+                if count > 0 {
+                    Text("\(count)")
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(selected ? .white.opacity(0.8) : .tertiary)
+                }
             }
-        } icon: {
-            Image(systemName: icon)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+            .padding(.horizontal, 4)
+            .foregroundStyle(selected ? AnyShapeStyle(.white) : AnyShapeStyle(.secondary))
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(selected ? AnyShapeStyle(Theme.brand) : AnyShapeStyle(Color.clear))
+            )
         }
-        .tag(value)
+        .buttonStyle(.plain)
+        .padding(.horizontal, 6)
     }
 
-    // MARK: Detail
+    // MARK: The grid
 
-    @ViewBuilder
-    private var detail: some View {
+    private var content: some View {
         ScrollView {
             // Lazy: a source can list hundreds of apps, and only the visible
             // cards should exist.
@@ -179,8 +234,8 @@ struct MarketplaceView: View {
                 if visible.isEmpty {
                     emptyState
                 } else {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 148), spacing: 14)],
-                              spacing: 14) {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 132), spacing: 12)],
+                              spacing: 12) {
                         ForEach(visible) { listing in
                             Button {
                                 selected = listing
@@ -204,10 +259,8 @@ struct MarketplaceView: View {
                     }
                 }
             }
-            .padding(20)
-            .pageColumn()
+            .padding(16)
         }
-        .background(AppBackground())
         .searchable(text: $query, prompt: Text(L("Search every source")))
         .refreshable { await store.refreshAll() }
         .navigationTitle(title)
