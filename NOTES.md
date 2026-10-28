@@ -1671,3 +1671,16 @@ weakly in their callbacks.
 - **Installed state in the marketplace** comes from the cached inventory (`SideloadedAppsManager`),
   so the app page can say "Installed 1.2 — this release is newer" without touching the device.
 
+### The QoL pass, and why each piece is where it is
+
+- **Search in My Apps** filters the same `manager.entries` the sections use, so the TestFlight /
+  sideloaded split survives filtering; the sort only reorders within each section.
+- **`Haptics`** is one small enum so the vocabulary stays consistent (light tap / success / warning /
+  rigid for destructive), and it's called from the engine's outcome, not from every button — a tap
+  that fires on "the run finished" is honest, one that fires on "the button was pressed" isn't.
+- **Info sheet copy/share** exists because the questions people ask ("what's your bundle ID, when
+  does it expire") are answered by a paste, and because the stored-`.ipa` line tells you at a glance
+  whether this app can be re-signed later.
+- **Opened .ipa → Install tab**: `installMenuRevision` already bumps on every import; `RootView` now
+  reacts to it by switching tabs, which covers the share-sheet path and the document picker alike.
+

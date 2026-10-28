@@ -4,6 +4,18 @@ All notable changes to SideInstaller are documented here.
 
 ## Unreleased
 
+### Added
+- **Quality-of-life pass:**
+  - **My Apps has a search field** (name, bundle ID or App ID) and a sort toggle between expiry and
+    name, so a device with forty sideloaded apps is navigable.
+  - **Haptics** where they belong: a success tap when a run finishes installing, a warning when it
+    stops, a firm tap when you confirm an uninstall — and none for background work.
+  - **Copy and share from the Info sheet**: copy the bundle ID in one tap, or copy/share a text
+    summary of the app (name, IDs, version, signer, expiry, and whether a stored `.ipa` exists) —
+    which is exactly what a bug report needs.
+  - **An .ipa opened from another app** (share sheet, "Open with") now imports *and* lands you on the
+    Install tab, where it's ready, instead of silently importing behind the current screen.
+
 ### Changed
 - **Installs finish on their own.** The "this app needs an App ID" stop before signing is off by
   default; the run logs what it registers and carries on to installation. Settings › Renewals ›
