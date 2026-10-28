@@ -34,28 +34,37 @@ struct AltSource: Decodable, Identifiable, Sendable {
 
     var id: String { identifier ?? name }
 
-    private enum CodingKeys: String, CodingKey {
-        case name, identifier, subtitle, description, iconURL, headerURL, website,
-             tintColor, featuredApps, apps, news
-    }
-
     init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        name = (try? container.decode(String.self, forKey: .name)) ?? "Untitled source"
-        identifier = try? container.decodeIfPresent(String.self, forKey: .identifier)
-        subtitle = try? container.decodeIfPresent(String.self, forKey: .subtitle)
-        description = try? container.decodeIfPresent(String.self, forKey: .description)
-        iconURL = try? container.decodeIfPresent(String.self, forKey: .iconURL)
-        headerURL = try? container.decodeIfPresent(String.self, forKey: .headerURL)
-        website = try? container.decodeIfPresent(String.self, forKey: .website)
-        tintColor = try? container.decodeIfPresent(String.self, forKey: .tintColor)
-        featuredApps = try? container.decodeIfPresent([String].self, forKey: .featuredApps)
-        news = try? container.decodeIfPresent([AltNews].self, forKey: .news)
-        // A source whose apps can't be read is an error worth showing, so this
-        // one isn't swallowed like the rest.
-        let decoded = (try? container.decodeIfPresent([AltApp].self, forKey: .apps)) .flatMap { $0 } ?? []
-        apps = decoded
-        installableApps = decoded
+        // Read through `Any` rather than typed containers: sources in the wild
+        // put numbers where strings go (a `version` of `1`), and one mistyped
+        // field used to cost the whole document — every app in a v1 source
+        // vanished because its top-level `version` decoded as nil.
+        let raw: [String: Any]
+        do {
+            raw = (try decoder.singleValueContainer().decode([String: Any].self))
+        } catch {
+            raw = [:]
+        }
+        let reader = PlistValue(raw)
+        name = reader.string("name") ?? "Untitled source"
+        identifier = reader.string("identifier")
+        subtitle = reader.string("subtitle")
+        description = reader.string("description")
+        iconURL = reader.string("iconURL")
+        headerURL = reader.string("headerURL")
+        website = reader.string("website")
+        tintColor = reader.string("tintColor")
+        featuredApps = reader.strings("featuredApps")
+        news = (raw["news"] as? [Any])?.compactMap { item -> AltNews? in
+            guard let dict = item as? [String: Any] else { return nil }
+            return AltNews(plist: dict)
+        }
+        let decodedApps = (raw["apps"] as? [Any])?.compactMap { item -> AltApp? in
+            guard let dict = item as? [String: Any] else { return nil }
+            return AltApp(plist: dict)
+        } ?? []
+        apps = decodedApps
+        installableApps = decodedApps
             .filter { !$0.releases.isEmpty }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
@@ -64,8 +73,42 @@ struct AltSource: Decodable, Identifiable, Sendable {
     var icon: URL? { URL(string: iconURL ?? "") }
 }
 
+/// Reads plist-ish JSON leniently: a value that isn't the type asked for is
+/// returned as nil instead of failing the whole document.
+struct PlistValue {
+    let raw: [String: Any]
+
+    init(_ raw: [String: Any]) { self.raw = raw }
+
+    func string(_ key: String) -> String? {
+        switch raw[key] {
+        case let text as String: return text
+        case let number as NSNumber: return number.stringValue
+        case let flag as Bool: return flag ? "true" : "false"
+        default: return nil
+        }
+    }
+
+    func strings(_ key: String) -> [String]? {
+        guard let list = raw[key] as? [Any] else { return nil }
+        return list.compactMap {
+            if let text = $0 as? String { return text }
+            if let number = $0 as? NSNumber { return number.stringValue }
+            return nil
+        }
+    }
+
+    func int(_ key: String) -> Int64? {
+        switch raw[key] {
+        case let number as NSNumber: return number.int64Value
+        case let text as String: return Int64(text)
+        default: return nil
+        }
+    }
+}
+
 /// One app in a source.
-struct AltApp: Decodable, Identifiable, Sendable {
+struct AltApp: Identifiable, Sendable {
 
     let name: String
     let bundleIdentifier: String?
@@ -91,38 +134,29 @@ struct AltApp: Decodable, Identifiable, Sendable {
 
     var id: String { (bundleIdentifier ?? name) + "@" + (iconURL ?? "") }
 
-    private enum CodingKeys: String, CodingKey {
-        case name, bundleIdentifier, developerName, subtitle, localizedDescription,
-             iconURL, tintColor, category, screenshots, versions,
-             version, downloadURL, size
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        name = (try? container.decode(String.self, forKey: .name)) ?? "Untitled app"
-        bundleIdentifier = try? container.decodeIfPresent(String.self, forKey: .bundleIdentifier)
-        developerName = try? container.decodeIfPresent(String.self, forKey: .developerName)
-        subtitle = try? container.decodeIfPresent(String.self, forKey: .subtitle)
-        localizedDescription = try? container.decodeIfPresent(String.self, forKey: .localizedDescription)
-        iconURL = try? container.decodeIfPresent(String.self, forKey: .iconURL)
-        tintColor = try? container.decodeIfPresent(String.self, forKey: .tintColor)
-        category = try? container.decodeIfPresent(String.self, forKey: .category)
-        screenshots = try? container.decodeIfPresent([String].self, forKey: .screenshots)
-        versions = try? container.decodeIfPresent([AltVersion].self, forKey: .versions)
-        version = try? container.decodeIfPresent(String.self, forKey: .version)
-        downloadURL = try? container.decodeIfPresent(String.self, forKey: .downloadURL)
-        size = try? container.decodeIfPresent(Int64.self, forKey: .size)
-
-        // A v1 source lists no `versions`, so its top-level release stands in.
-        var found = (versions ?? []).filter { $0.url != nil }
-        if found.isEmpty, let link = downloadURL,
+    /// Newest first, downloadable only. A v1 app (no `versions`) keeps its own
+    /// top-level release, which is where these sources put the only one they
+    /// have — CyPwn's whole catalogue is shaped that way.
+    static func releases(from listed: [AltVersion],
+                         top: (version: String?, downloadURL: String?, size: Int64?, description: String?),
+                         date: String?) -> [AltVersion] {
+        var found = listed.filter { $0.url != nil }
+        if found.isEmpty, let link = top.downloadURL,
            let url = URL(string: link), url.scheme?.hasPrefix("http") == true {
-            found = [AltVersion(version: version, buildVersion: nil, date: nil,
-                                localizedDescription: localizedDescription,
-                                downloadURL: link, size: size, minOSVersion: nil)]
+            found = [AltVersion(version: top.version, buildVersion: nil, date: date,
+                                localizedDescription: top.description,
+                                downloadURL: link, size: top.size, minOSVersion: nil)]
         }
-        releases = Array(found.reversed())
+        return Array(found.reversed())
     }
+
+    /// Every release that can actually be downloaded, newest first. Worked out
+    /// once at decode time: the list is read by list rows, the release picker
+    /// and the source's own filtering, and re-deriving it each time was most of
+    /// the cost of a big source.
+    let releases: [AltVersion]
+
+    var id: String { (bundleIdentifier ?? name) + "@" + (iconURL ?? "") }
 
     var latest: AltVersion? { releases.first }
 
@@ -135,7 +169,7 @@ struct AltApp: Decodable, Identifiable, Sendable {
 }
 
 /// One release of an app in a source.
-struct AltVersion: Decodable, Identifiable, Equatable, Sendable {
+struct AltVersion: Identifiable, Equatable, Sendable {
 
     let version: String?
     let buildVersion: String?
@@ -144,6 +178,17 @@ struct AltVersion: Decodable, Identifiable, Equatable, Sendable {
     let downloadURL: String?
     let size: Int64?
     let minOSVersion: String?
+
+    init(plist: [String: Any]) {
+        let reader = PlistValue(plist)
+        version = reader.string("version")
+        buildVersion = reader.string("buildVersion")
+        date = reader.string("date") ?? reader.string("versionDate")
+        localizedDescription = reader.string("localizedDescription")
+        downloadURL = reader.string("downloadURL")
+        size = reader.int("size")
+        minOSVersion = reader.string("minOSVersion")
+    }
 
     var id: String { (version ?? "?") + "|" + (buildVersion ?? "") + "|" + (downloadURL ?? "") }
 
@@ -181,7 +226,7 @@ struct AltVersion: Decodable, Identifiable, Equatable, Sendable {
 }
 
 /// One news item in a source (v2), shown at the top of its page.
-struct AltNews: Decodable, Identifiable, Sendable {
+struct AltNews: Identifiable, Sendable {
     let title: String?
     let identifier: String?
     let caption: String?
@@ -189,6 +234,17 @@ struct AltNews: Decodable, Identifiable, Sendable {
     let url: String?
     let appID: String?
     let tintColor: String?
+
+    init(plist: [String: Any]) {
+        let reader = PlistValue(plist)
+        title = reader.string("title")
+        identifier = reader.string("identifier")
+        caption = reader.string("caption")
+        date = reader.string("date")
+        url = reader.string("url")
+        appID = reader.string("appID")
+        tintColor = reader.string("tintColor")
+    }
 
     var id: String { identifier ?? title ?? UUID().uuidString }
 
