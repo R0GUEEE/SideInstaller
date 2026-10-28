@@ -37,12 +37,6 @@ name: release-sideinstaller
 # tag, so publishing a stable release here is all it takes to show it.
 
 on:
-  # Not a release path: pushing a `ci/*` branch registers this workflow with
-  # GitHub so it can be dispatched on a fork, and runs it with no inputs (it
-  # stops at the version check).
-  push:
-    branches:
-      - "ci/**"
   workflow_dispatch:
     inputs:
       version:
