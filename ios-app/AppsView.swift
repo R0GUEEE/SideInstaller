@@ -898,8 +898,10 @@ struct AppsView: View {
                 }
                 .cascadeItem(4)
                 ForEach(Array(manager.entries.enumerated()), id: \.element.id) { idx, status in
-                    NavigationLink {
-                        AppProfileDetail(status: status)
+                    // The row opens the Info sheet rather than pushing a page:
+                    // the same details, with the app's actions beside them.
+                    Button {
+                        infoTarget = status
                     } label: {
                         appRow(status)
                     }
