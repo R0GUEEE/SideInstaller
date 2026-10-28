@@ -611,6 +611,180 @@ struct MarketplaceView: View {
     }
 }
 
+/// One app's page, assembled from every source that carries it.
+///
+/// The marketplace merges an app's copies so it's listed once; this is what
+/// opens when one is tapped, with the union of its releases and a picker to
+/// choose which one to install.
+struct MergerAppView: View {
+    @EnvironmentObject private var loc: Localizer
+    @EnvironmentObject private var engine: Engine
+    let app: MarketplaceView.MergedApp
+
+    @State private var chosen: AltVersion?
+    @State private var showVersions = false
+
+    private var picked: (version: AltVersion, source: AltSource)? { app.pick(chosen) }
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(spacing: 18) {
+                hero
+                if let description = app.subtitle ?? picked?.version.localizedDescription,
+                   !description.isEmpty {
+                    PanelCard {
+                        Text(description)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                releaseCard
+                sourcesCard
+                installCard
+            }
+            .padding(20)
+            .pageColumn()
+        }
+        .background(AppBackground())
+        .navigationTitle(app.name)
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var hero: some View {
+        VStack(spacing: 12) {
+            SourceIcon(url: app.icon, side: 92, fallback: "app.fill", corner: 22)
+                .shadow(color: Theme.glow, radius: 18, x: 0, y: 10)
+            VStack(spacing: 4) {
+                Text(app.name)
+                    .font(.title2.weight(.bold))
+                    .multilineTextAlignment(.center)
+                if let developer = app.developer, !developer.isEmpty {
+                    Text(developer)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                Text(app.key)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.tertiary)
+            }
+            StatusPill(text: app.category.title, systemImage: app.category.icon, color: Theme.accent2)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 8)
+    }
+
+    private var releaseCard: some View {
+        PanelCard {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text(L("Release"))
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button {
+                        showVersions = true
+                    } label: {
+                        Label(picked?.version.version ?? L("Newest"),
+                              systemImage: "chevron.up.chevron.down")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    .confirmationDialog(L("Choose a version"), isPresented: $showVersions) {
+                        ForEach(app.versions, id: \.version.id) { entry in
+                            Button(label(entry.version)) { chosen = entry.version }
+                        }
+                        Button(L("Cancel"), role: .cancel) {}
+                    }
+                }
+                if let picked {
+                    VStack(alignment: .leading, spacing: 8) {
+                        if let date = picked.version.dateValue {
+                            row(L("Released"), date.formatted(date: .abbreviated, time: .omitted))
+                        }
+                        if let size = picked.version.sizeText {
+                            row(L("Size"), size)
+                        }
+                        if let minOS = picked.version.minOSVersion {
+                            row(L("Needs iOS"), minOS, warn: picked.version.needsNewerOS)
+                        }
+                        row(L("From"), picked.source.name)
+                    }
+                } else {
+                    Text(L("No downloadable release."))
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    /// Every source carrying this app, and how many of its versions each has.
+    private var sourcesCard: some View {
+        let sources = Dictionary(grouping: app.versions, by: { $0.source.id })
+        return PanelCard {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(L("In your sources"))
+                    .font(.subheadline.weight(.semibold))
+                ForEach(Array(sources.keys), id: \.self) { id in
+                    if let entries = sources[id], let source = entries.first?.source {
+                        HStack {
+                            Text(source.name)
+                                .font(.caption)
+                                .lineLimit(1)
+                            Spacer()
+                            Text(L("%ld versions", entries.count))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var installCard: some View {
+        PanelCard {
+            VStack(spacing: 12) {
+                Button {
+                    if let url = picked?.version.url { engine.installLinkedIPA(url) }
+                } label: {
+                    Label(L("Install %@", picked?.version.version ?? L("newest")),
+                          systemImage: "square.and.arrow.down")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(PrimaryButtonStyle())
+                .disabled(picked?.version.url == nil || engine.isRunning || engine.isImportingIPA)
+
+                Text(L("Downloads the .ipa, signs it with your Apple ID and installs it — the same run as any other build."))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+        }
+    }
+
+    private func label(_ version: AltVersion) -> String {
+        var parts = [version.version ?? L("unknown")]
+        if let date = version.dateValue {
+            parts.append(date.formatted(date: .abbreviated, time: .omitted))
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    private func row(_ label: String, _ value: String, warn: Bool = false) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(label)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .frame(width: 96, alignment: .leading)
+            Text(value)
+                .font(.subheadline)
+                .foregroundStyle(AnyShapeStyle(warn ? Color.orange : Color.primary))
+            Spacer(minLength: 0)
+        }
+    }
+}
+
 /// One app in the list: icon, name, developer and category, with the newest
 /// version on the right. Deliberately small — the marketplace is for finding
 /// and installing, and the app's own page has the rest.
