@@ -367,11 +367,11 @@ struct MarketplaceView: View {
                                     Label(L("Install newest"), systemImage: "square.and.arrow.down")
                                 }
                                 ForEach(app.versions, id: \.version.id) { entry in
+                                    let title: String = L("Install %@", versionLabel(entry.version))
                                     Button {
                                         install(app, version: entry.version)
                                     } label: {
-                                        Label(L("Install %@", versionLabel(entry.version)),
-                                              systemImage: "clock.arrow.circlepath")
+                                        Label(title, systemImage: "clock.arrow.circlepath")
                                     }
                                 }
                                 Divider()
@@ -594,6 +594,15 @@ struct MarketplaceView: View {
         visibleApps = sorted(list)
     }
 
+
+    /// "1.2.3 · 3 Feb 2026", as the version menus show a release.
+    private func versionLabel(_ version: AltVersion) -> String {
+        var parts = [version.version ?? L("unknown")]
+        if let date = version.dateValue {
+            parts.append(date.formatted(date: .abbreviated, time: .omitted))
+        }
+        return parts.joined(separator: " · ")
+    }
 
     private func sorted(_ list: [MergedApp]) -> [MergedApp] {
         switch sort {
