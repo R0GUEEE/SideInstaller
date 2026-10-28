@@ -1363,3 +1363,19 @@ Two features added on top of the install pipeline: browsing AltStore sources, an
   `[String: Any]` from `PropertyListSerialization` (device data), which `Codable` can't take
   directly.
 
+### Where My Apps' remaining wait was
+
+- `SideloadedApp(plist:)` and `ProvisioningProfile(data:)` run `PropertyListSerialization` per app
+  and per profile, and `ProfileMatcher.match` regex-matches wildcard App IDs against apps — all of
+  it on the main actor inside `adopt`. On a device holding a few hundred profiles (every re-sign
+  leaves one behind) that's the bulk of the stall, cached or not.
+- Both paths now hand `(appPlists, profileBlobs)` to a detached task and come back with the parsed
+  entries, so the tab's first frame doesn't wait for it. The types are annotated
+  `@unchecked Sendable` for that crossing — they're immutable value types over plist data, and
+  nothing mutates them after parsing.
+- The rows are a `LazyVStack`: a row carries a `Menu`, an icon lookup and an expiry label, which
+  adds up when twenty-plus exist.
+- If it's *still* slow, the remaining suspects are the icon batch (one `app_service` connection per
+  40 apps) and `AVFoundation`-free `UIImage(data:)` decoding of 60pt PNGs; the fix there is to
+  downsample with `CGImageSourceCreateThumbnailAtIndex` and store the small image.
+

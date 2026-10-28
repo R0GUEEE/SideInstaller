@@ -5,6 +5,10 @@ All notable changes to SideInstaller are documented here.
 ## Unreleased
 
 ### Changed
+- **My Apps no longer parses on the main thread.** Even from cache, the tab decoded every
+  provisioning profile (a property list inside each CMS blob) and matched them to apps before its
+  first frame, then built every row eagerly. That work now runs in a detached task and the list is
+  lazy, so the tab draws and fills in rather than freezing.
 - **My Apps opens instantly.** It used to connect to the device as soon as the tab appeared — open
   LocalDevVPN, wait for the tunnel, walk a pairing handshake — before showing a single app. The
   inventory is now kept per device, so the page draws the last list immediately and says how old it
