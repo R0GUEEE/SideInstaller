@@ -79,7 +79,14 @@ struct MarketplaceView: View {
 
     @State private var filter: Filter? = .all
     @State private var query = ""
+    /// Every app, one entry per bundle ID (the newest release wins), for the
+    /// category and featured views.
     @State private var catalog: [Listing] = []
+    /// The same apps kept per source, so a source's view shows everything it
+    /// carries. Filtering the de-duplicated catalogue by source dropped any app
+    /// a later source also listed — which is why a source with six apps showed
+    /// none.
+    @State private var bySource: [String: [Listing]] = [:]
     @State private var selected: Listing?
     @State private var showAdd = false
     @State private var showSettings = false
@@ -163,7 +170,7 @@ struct MarketplaceView: View {
                     .padding(.top, 12)
                 ForEach(store.sources) { loaded in
                     railButton(.source(loaded.id), title: loaded.name, icon: "shippingbox.fill",
-                               count: loaded.appCount)
+                               count: bySource[loaded.id]?.count ?? loaded.appCount)
                 }
                 Button {
                     showAdd = true
@@ -185,7 +192,7 @@ struct MarketplaceView: View {
             }
             .padding(.vertical, 8)
         }
-        .frame(width: 96)
+        .frame(width: 76)
         // The rail is its own column: on iPad's wider layout the same width
         // keeps the grid roomy.
         .background(.black.opacity(0.12))
@@ -234,15 +241,29 @@ struct MarketplaceView: View {
                 if visible.isEmpty {
                     emptyState
                 } else {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 132), spacing: 12)],
-                              spacing: 12) {
+                    // Compact rows rather than a grid of cards: more apps per
+                    // screen, and the install button sits on the row.
+                    LazyVStack(spacing: 8) {
                         ForEach(visible) { listing in
-                            Button {
-                                selected = listing
-                            } label: {
-                                ListingCard(listing: listing)
+                            HStack(spacing: 10) {
+                                Button {
+                                    selected = listing
+                                } label: {
+                                    ListingRow(listing: listing)
+                                }
+                                .buttonStyle(.plain)
+
+                                Button {
+                                    install(listing)
+                                } label: {
+                                    Image(systemName: "arrow.down.circle.fill")
+                                        .font(.title3)
+                                        .foregroundStyle(Theme.accent2)
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(listing.app.latest?.url == nil || engine.isRunning)
+                                .padding(.trailing, 4)
                             }
-                            .buttonStyle(.plain)
                             .contextMenu {
                                 Button {
                                     install(listing)
@@ -268,13 +289,15 @@ struct MarketplaceView: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(title)
-                .font(.largeTitle.weight(.bold))
+                .font(.title2.weight(.bold))
             Text(visible.count == 1 ? L("1 app") : L("%ld apps", visible.count))
-                .font(.subheadline)
+                .font(.caption)
                 .foregroundStyle(.secondary)
+            Spacer(minLength: 0)
         }
+        .padding(.bottom, 2)
     }
 
     private var emptyState: some View {
@@ -324,9 +347,12 @@ struct MarketplaceView: View {
     private func rebuild() {
         var byBundle: [String: Listing] = [:]
         var order: [String] = []
+        var grouped: [String: [Listing]] = [:]
         for loaded in store.sources {
             guard let source = loaded.source else { continue }
             for app in source.installableApps {
+                let listing = Listing(app: app, source: source)
+                grouped[loaded.id, default: []].append(listing)
                 let key = app.bundleIdentifier ?? app.id
                 if let existing = byBundle[key] {
                     let old = existing.app.latest?.version ?? "0"
@@ -335,11 +361,13 @@ struct MarketplaceView: View {
                 } else {
                     order.append(key)
                 }
-                byBundle[key] = Listing(app: app, source: source)
+                byBundle[key] = listing
             }
         }
         let rebuilt = order.compactMap { byBundle[$0] }
         if rebuilt.map(\.id) != catalog.map(\.id) { catalog = rebuilt }
+        let counts = grouped.mapValues(\.count)
+        if counts != bySource.mapValues(\.count) { bySource = grouped }
     }
 
     /// The categories the sources actually use, in the catalogue's order.
@@ -366,7 +394,8 @@ struct MarketplaceView: View {
         case .category(let id):
             list = list.filter { MarketCategory.of($0.app.category).id == id }
         case .source(let id):
-            list = list.filter { $0.source.id == id }
+            // Not the de-duplicated list: this view is this source's shelf.
+            list = bySource[id] ?? []
         }
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return list }
@@ -385,43 +414,47 @@ struct MarketplaceView: View {
     }
 }
 
-/// One app in the grid: its icon, name and developer, with the newest version
-/// underneath.
-private struct ListingCard: View {
+/// One app in the list: icon, name, developer and category, with the newest
+/// version on the right. Deliberately small — the marketplace is for finding
+/// and installing, and the app's own page has the rest.
+private struct ListingRow: View {
     let listing: MarketplaceView.Listing
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top, spacing: 10) {
-                SourceIcon(url: listing.app.icon, side: 54, fallback: "app.fill", corner: 13)
-                    .shadow(color: Theme.glow, radius: 10, x: 0, y: 5)
-                Spacer(minLength: 0)
-                if let version = listing.app.latest?.version {
-                    Text(version)
-                        .font(.caption2.monospaced())
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(Capsule().fill(.white.opacity(0.07)))
-                }
-            }
+        HStack(spacing: 12) {
+            SourceIcon(url: listing.app.icon, side: 44, fallback: "app.fill", corner: 10)
             VStack(alignment: .leading, spacing: 2) {
                 Text(listing.app.name)
                     .font(.subheadline.weight(.semibold))
                     .lineLimit(1)
-                Text(listing.app.developerName ?? listing.source.name)
+                Text(subtitle)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                Text(MarketCategory.of(listing.app.category).title)
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(1)
             }
-            Spacer(minLength: 0)
+            Spacer(minLength: 6)
+            if let version = listing.app.latest?.version {
+                Text(version)
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.secondary)
+            }
         }
+        .padding(.vertical, 8)
+        .padding(.horizontal, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .cardSurface(in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .cardSurface(in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .contentShape(Rectangle())
+    }
+
+    /// "Developer · Category", with whatever of the two the source gave.
+    private var subtitle: String {
+        let developer = listing.app.developerName
+        let category = MarketCategory.of(listing.app.category).title
+        switch (developer?.isEmpty == false, category.isEmpty) {
+        case (true, false):  return "\(developer!) · \(category)"
+        case (true, true):   return developer!
+        case (false, false): return category
+        default:             return listing.source.name
+        }
     }
 }

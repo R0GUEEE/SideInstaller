@@ -8,15 +8,14 @@ struct RootView: View {
     /// The tabs and their backdrop level. The selection is tracked so a tab
     /// switch can animate `Backdrop` to the new level.
     private enum Page: Hashable {
-        case install, marketplace, tools, about
+        case install, marketplace, apps, tools
 
         var wash: Backdrop.Level {
             switch self {
             case .install:     .bright
             case .marketplace: .dark
+            case .apps:        .bright
             case .tools:       .dark
-            // Same as Install, so switching between them doesn't change the backdrop.
-            case .about:       .bright
             }
         }
     }
@@ -87,6 +86,11 @@ struct RootView: View {
             MarketplaceView(store: sourceStore)
                 .tabItem { Label(L("Marketplace"), systemImage: "square.grid.2x2.fill") }
                 .tag(Page.marketplace)
+            NavigationStack {
+                AppsView(sources: sourceStore, manager: appsManager)
+            }
+            .tabItem { Label(L("My Apps"), systemImage: "square.stack.3d.up.fill") }
+            .tag(Page.apps)
             ToolsView(pairingManager: pairingManager,
                       certManager: certManager,
                       locationManager: locationManager,
@@ -96,9 +100,6 @@ struct RootView: View {
                       sourceStore: sourceStore)
                 .tabItem { Label(L("Tools"), systemImage: "wrench.and.screwdriver") }
                 .tag(Page.tools)
-            AboutView()
-                .tabItem { Label(L("About"), systemImage: "info.circle") }
-                .tag(Page.about)
         }
         // Animate the backdrop to the new tab's level.
         .onChange(of: page) { _, page in Backdrop.settle(on: page.wash) }
@@ -541,19 +542,12 @@ struct ToolsView: View {
                     .buttonStyle(.plain)
                     .cascadeItem(rowIndex(4))
                     NavigationLink {
-                        AppsView(sources: sourceStore, manager: appsManager)
-                    } label: {
-                        ToolRow(image: "AppsLogo", title: L("Sideloaded apps"))
-                    }
-                    .buttonStyle(.plain)
-                    .cascadeItem(rowIndex(5))
-                    NavigationLink {
                         IPAInspectorView()
                     } label: {
                         ToolRow(icon: "doc.text.magnifyingglass", title: L("Inspect .ipa"))
                     }
                     .buttonStyle(.plain)
-                    .cascadeItem(rowIndex(6))
+                    .cascadeItem(rowIndex(5))
                 }
                 // No bottom padding: the tab bar's inset already clears the last
                 // row, and the extra 20pt would make a page that fits scroll.

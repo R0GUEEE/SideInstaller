@@ -58,6 +58,7 @@ struct SettingsView: View {
                 anisetteSection
                 advancedSection
                 logSection
+                aboutSection
             }
             .sheet(item: $editorTarget) { AccountEditor(target: $0) }
             .sheet(isPresented: $showReport) { ReportProblemView() }
@@ -422,6 +423,19 @@ struct SettingsView: View {
                 }
             }
         )
+    }
+
+    /// The About page, which used to be its own tab: version, credits, the
+    /// licence and the source links.
+    private var aboutSection: some View {
+        Section {
+            NavigationLink {
+                AboutView()
+                    .navigationTitle(L("About"))
+            } label: {
+                Label(L("About SideInstaller"), systemImage: "info.circle")
+            }
+        }
     }
 
     // MARK: Advanced

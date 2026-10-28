@@ -623,7 +623,7 @@ struct AppsView: View {
     // MARK: Header
 
     private var header: some View {
-        BrandHeader(icon: "app.badge.clock", image: "AppsLogo", title: L("Sideloaded apps")) {
+        BrandHeader(icon: "app.badge.clock", image: "AppsLogo", title: L("My Apps")) {
             if manager.hasLoaded {
                 let expiring = manager.expiringSoon
                 StatusPill(text: expiring > 0

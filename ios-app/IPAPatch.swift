@@ -349,6 +349,66 @@ enum IPAPatch {
         }
     }
 
+    // MARK: - Reading what a build already says
+
+    /// The main `Info.plist` of the archive at `url`, without unpacking it.
+    /// Used by the configuration page to show the build as it is.
+    static func readInfoPlist(from url: URL) -> [String: Any]? {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        guard let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size]) as? Int,
+              size > 22,
+              let entries = try? directory(handle, fileSize: size),
+              let app = mainApp(in: entries),
+              let entry = entries.first(where: { $0.name == app.prefix + "Info.plist" }),
+              let data = try? contents(of: entry, in: handle),
+              let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil)
+        else { return nil }
+        return plist as? [String: Any]
+    }
+
+    /// The entitlements the build declares: its archived `xcent` when there is
+    /// one, otherwise the embedded provisioning profile's `Entitlements`.
+    static func readEntitlements(from url: URL) -> [String: Any]? {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        guard let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size]) as? Int,
+              size > 22,
+              let entries = try? directory(handle, fileSize: size),
+              let app = mainApp(in: entries)
+        else { return nil }
+
+        if let entry = entries.first(where: { $0.name == app.prefix + "archived-expanded-entitlements.xcent" }),
+           let data = try? contents(of: entry, in: handle),
+           let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil),
+           let dict = plist as? [String: Any] {
+            return dict
+        }
+        if let entry = entries.first(where: { $0.name == app.prefix + "embedded.mobileprovision" }),
+           let data = try? contents(of: entry, in: handle),
+           let payload = profilePlist(in: data),
+           let plist = try? PropertyListSerialization.propertyList(from: payload, options: [], format: nil),
+           let dict = plist as? [String: Any] {
+            return dict["Entitlements"] as? [String: Any]
+        }
+        return nil
+    }
+
+    /// A `.mobileprovision` is a CMS container around an XML plist; this finds
+    /// the plist inside it, the way most sideloaders do.
+    private static func profilePlist(in data: Data) -> Data? {
+        let start = Data("<?xml".utf8)
+        let end = Data("</plist>".utf8)
+        if let from = data.range(of: start),
+           let to = data.range(of: end, options: [], in: from.lowerBound..<data.endIndex) {
+            return data[from.lowerBound..<to.upperBound]
+        }
+        if let from = data.range(of: Data("bplist00".utf8)) {
+            return data[from.lowerBound..<data.endIndex]
+        }
+        return nil
+    }
+
     // MARK: - The app inside the archive
 
     /// `Payload/<name>.app`, found through its own `Info.plist`.
@@ -788,6 +848,50 @@ enum MachOInject {
         write32(UInt32(commandCount), 16)
         write32(UInt32(commandsSize), 20)
         return Result(data: Data(bytes), state: .injected)
+    }
+
+    /// The libraries a Mach-O already loads, for dependency analysis: a tweak
+    /// built against Substrate names `libsubstrate.dylib` here even when its
+    /// package doesn't say so.
+    static func linkedLibraries(in binary: Data) -> [String] {
+        let bytes = [UInt8](binary.prefix(4 << 20))
+        guard bytes.count > 32 else { return [] }
+        let magic = be32(bytes, 0)
+        let bigEndian: Bool
+        let is64: Bool
+        switch magic {
+        case 0xCFFA_EDFE: bigEndian = false; is64 = true
+        case 0xCEFA_EDFE: bigEndian = false; is64 = false
+        case 0xFEED_FACF: bigEndian = true;  is64 = true
+        case 0xFEED_FACE: bigEndian = true;  is64 = false
+        default: return []
+        }
+        func read32(_ at: Int) -> UInt32 {
+            let value = be32(bytes, at)
+            return bigEndian ? value : value.byteSwapped
+        }
+        var out: [String] = []
+        let commandCount = Int(read32(16))
+        var cursor = is64 ? 32 : 28
+        for _ in 0..<min(commandCount, 4096) {
+            guard cursor + 8 <= bytes.count else { break }
+            let command = read32(cursor)
+            let size = Int(read32(cursor + 4))
+            guard size >= 8, cursor + size <= bytes.count else { break }
+            if command == 0x0C || command == 0x8000_0018 || command == 0x18 || command == 0x1F {
+                let nameOffset = Int(read32(cursor + 8))
+                if nameOffset > 0, nameOffset < size {
+                    let start = cursor + nameOffset
+                    let end = min(start + 1024, cursor + size)
+                    if let text = String(bytes: bytes[start..<end], encoding: .utf8) {
+                        let name = text.split(separator: "\0").first.map(String.init) ?? ""
+                        if !name.isEmpty { out.append(name) }
+                    }
+                }
+            }
+            cursor += size
+        }
+        return out
     }
 
     private static func align(_ value: Int, to boundary: Int) -> Int {

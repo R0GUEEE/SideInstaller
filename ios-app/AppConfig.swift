@@ -41,6 +41,21 @@ enum TweakInjectorKind: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+extension TweakInjectorKind {
+    /// The framework a library is built against, read from the libraries it
+    /// links. A tweak compiled against Substrate names `libsubstrate.dylib`
+    /// even when nothing in its package says so, which is the only dependency
+    /// signal a bare `.dylib` has.
+    static func detected(inLibraries libraries: [String]) -> TweakInjectorKind? {
+        let names = libraries.map { ($0 as NSString).lastPathComponent.lowercased() }
+        if names.contains(where: { $0.contains("ellekit") }) { return .ellekit }
+        if names.contains(where: { $0.contains("libhooker") }) { return .libhooker }
+        if names.contains(where: { $0.contains("substitute") }) { return .substitute }
+        if names.contains(where: { $0.contains("substrate") }) { return .substrate }
+        return nil
+    }
+}
+
 /// A library the user supplied that provides one of those frameworks. Bundling
 /// them isn't possible, so they're added from a copy the user already has.
 struct TweakInjector: Codable, Identifiable, Equatable {
@@ -191,6 +206,8 @@ final class AppConfigStore: ObservableObject {
     }
     /// Injector libraries the user added, one per framework.
     @Published private(set) var injectors: [TweakInjector] = []
+    /// What a framework's download is doing, per kind: shown beside its row.
+    @Published private(set) var injectorStatus: [TweakInjectorKind: String] = [:]
 
     private static let defaultsKey = "appConfig.v2"
     private static let injectorsKey = "appConfig.injectors.v1"
@@ -246,16 +263,27 @@ final class AppConfigStore: ObservableObject {
                 let stored = try Self.copy(url, into: Self.tweaksDirectory)
                 if lowered.hasSuffix(".deb") {
                     let package = try DebArchive.read(stored)
+                    // The package's own dependency first; failing that, what its
+                    // libraries link against.
+                    let linked = package.libraries.flatMap {
+                        MachOInject.linkedLibraries(in: $0.data)
+                    }
                     config.tweaks.removeAll { $0.path == stored.path }
                     config.tweaks.append(Tweak(name: package.name ?? name,
                                                path: stored.path,
                                                kind: .deb,
                                                loadPath: "",
-                                               requiresInjector: package.requiredInjector))
+                                               requiresInjector: package.requiredInjector
+                                                   ?? TweakInjectorKind.detected(inLibraries: linked)))
                 } else {
+                    // A bare library has no control file, so its links are the
+                    // only clue to what it needs.
+                    let linked = (try? Data(contentsOf: stored, options: .uncached))
+                        .map { MachOInject.linkedLibraries(in: $0) } ?? []
                     config.tweaks.removeAll { $0.path == stored.path }
                     config.tweaks.append(Tweak(name: name, path: stored.path, kind: .dylib,
-                                               loadPath: "@executable_path/Frameworks/\(name)"))
+                                               loadPath: "@executable_path/Frameworks/\(name)",
+                                               requiresInjector: TweakInjectorKind.detected(inLibraries: linked)))
                 }
                 added += 1
             } catch {
@@ -295,6 +323,44 @@ final class AppConfigStore: ObservableObject {
                                        fileName: stored.lastPathComponent))
         saveInjectors()
         return true
+    }
+
+    /// Fetches a framework from where it's published (see `InjectorCatalog`),
+    /// with its progress and any failure shown on its row.
+    func downloadInjector(_ kind: TweakInjectorKind) async {
+        injectorStatus[kind] = L("Downloading…")
+        do {
+            let fetched = try await InjectorCatalog.fetch(kind)
+            if addInjectorData(fetched.data, kind: kind, fileName: fetched.fileName) {
+                injectorStatus[kind] = L("Added %@", fetched.fileName)
+            } else {
+                injectorStatus[kind] = L("Couldn't store it.")
+            }
+        } catch {
+            injectorStatus[kind] = (error as? LocalizedError)?.errorDescription
+                ?? L("Download failed.")
+        }
+    }
+
+    /// Stores library bytes as the framework for `kind`.
+    @discardableResult
+    func addInjectorData(_ data: Data, kind: TweakInjectorKind, fileName: String) -> Bool {
+        do {
+            try FileManager.default.createDirectory(at: Self.injectorsDirectory,
+                                                    withIntermediateDirectories: true)
+            let destination = Self.injectorsDirectory.appendingPathComponent(fileName)
+            if FileManager.default.fileExists(atPath: destination.path) {
+                try FileManager.default.removeItem(at: destination)
+            }
+            try data.write(to: destination, options: .atomic)
+            injectors.removeAll { $0.kind == kind }
+            injectors.append(TweakInjector(kind: kind, path: destination.path, fileName: fileName))
+            saveInjectors()
+            return true
+        } catch {
+            injectorStatus[kind] = L("Couldn't store it: %@", error.localizedDescription)
+            return false
+        }
     }
 
     func removeInjector(_ kind: TweakInjectorKind) {

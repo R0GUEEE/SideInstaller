@@ -11,12 +11,12 @@ extension UTType {
     static let deb = UTType(filenameExtension: "deb") ?? .data
 }
 
-/// The full configuration toolkit for the custom `.ipa`: its identity, any
-/// `Info.plist` key, its entitlements, which extensions survive, and the tweaks
-/// — `.dylib` or `.deb` — loaded into it.
+/// The full configuration toolkit for the custom `.ipa`: what the build says
+/// about itself, any `Info.plist` key or entitlement, which extensions survive,
+/// and the tweaks and injectors loaded into it.
 ///
-/// Shown from the Install screen's Advanced section. Values are kept until
-/// they're cleared, so the same build is prepared the same way each time.
+/// Everything is read out of the imported archive when the page opens, so the
+/// fields start from the build rather than from nothing.
 struct AppConfigView: View {
     @EnvironmentObject private var loc: Localizer
     @ObservedObject private var store = AppConfigStore.shared
@@ -24,10 +24,24 @@ struct AppConfigView: View {
 
     @State private var showTweakPicker = false
     @State private var showConfigImporter = false
-    @State private var tweakError: String?
+    @State private var note: String?
     @State private var injectedFor: TweakInjectorKind?
-    @State private var extensions: [String] = []
-    @State private var importNote: String?
+
+    /// What the imported archive says, read once when the page opens.
+    @State private var snapshot = Snapshot()
+    @State private var isLoading = false
+
+    /// The plain `.ipa` as it was imported, for the "in the build" lists.
+    struct Snapshot {
+        var bundleID = ""
+        var name = ""
+        var version = ""
+        var build = ""
+        var plist: [(key: String, kind: PlistEdit.Kind, text: String)] = []
+        var entitlements: [(key: String, text: String)] = []
+        var extensions: [String] = []
+        var missing = true
+    }
 
     var body: some View {
         NavigationStack {
@@ -39,7 +53,6 @@ struct AppConfigView: View {
                     entitlementsCard
                     extensionsCard
                     tweaksCard
-                    injectorsCard
                     backupCard
                 }
                 .padding(20)
@@ -58,7 +71,8 @@ struct AppConfigView: View {
                                              allowsMultipleSelection: true) { urls in
                     guard !urls.isEmpty else { return }
                     let result = store.addTweaks(urls)
-                    tweakError = result.failed.isEmpty ? nil
+                    note = result.failed.isEmpty
+                        ? L("Added %d tweak(s).", result.added)
                         : L("Couldn't add %@.", result.failed.joined(separator: ", "))
                 }
                 .ignoresSafeArea()
@@ -67,35 +81,67 @@ struct AppConfigView: View {
                 FileImporterRepresentableView(allowedContentTypes: [.dylib]) { urls in
                     guard let url = urls.first else { return }
                     if !store.addInjector(kind, from: url) {
-                        tweakError = L("That file couldn't be added as %@.", kind.title)
+                        note = L("That file couldn't be added as %@.", kind.title)
                     }
                 }
                 .ignoresSafeArea()
             }
             .sheet(isPresented: $showConfigImporter) {
                 FileImporterRepresentableView(allowedContentTypes: [.json]) { urls in
-                    guard let url = urls.first,
-                          let data = try? Data(contentsOf: url) else { return }
-                    importNote = store.importData(data)
+                    guard let url = urls.first, let data = try? Data(contentsOf: url) else { return }
+                    note = store.importData(data)
                         ? L("Configuration imported.")
                         : L("That isn't a configuration file this version understands.")
                 }
                 .ignoresSafeArea()
             }
-            .onAppear(perform: loadExtensions)
-            .onChange(of: store.config.tweaks.count) { _, _ in loadExtensions() }
+            .task { await loadSnapshot() }
         }
     }
 
-    /// The extensions of the build in the custom slot, so each can be dropped
-    /// by name. Read lazily, since it walks the archive.
-    private func loadExtensions() {
+    // MARK: Reading the build
+
+    /// Reads the imported archive off the main actor: identity, every
+    /// top-level plist key, the entitlements and the extension bundles.
+    private func loadSnapshot() async {
+        guard !isLoading else { return }
         guard let url = IPALibrary.customImport()?.url else {
-            if !extensions.isEmpty { extensions = [] }
+            snapshot = Snapshot()
             return
         }
-        let names = IPAInspector.extensionNames(in: url)
-        if names != extensions { extensions = names }
+        isLoading = true
+        let read = await Task.detached(priority: .userInitiated) { () -> Snapshot in
+            guard let info = IPAPatch.readInfoPlist(from: url) else { return Snapshot() }
+            var result = Snapshot()
+            result.missing = false
+            result.bundleID = info["CFBundleIdentifier"] as? String ?? ""
+            result.name = (info["CFBundleDisplayName"] as? String)
+                ?? (info["CFBundleName"] as? String) ?? ""
+            result.version = info["CFBundleShortVersionString"] as? String ?? ""
+            result.build = info["CFBundleVersion"] as? String ?? ""
+            // The build's own keys, the useful ones first: identity and
+            // interface before the long tail of privacy strings.
+            result.plist = info.keys.sorted().compactMap { key in
+                guard let value = info[key] else { return nil }
+                return (key, PlistEdit.Kind.of(value), PlistEdit.Kind.text(value))
+            }
+            let entitlements = IPAPatch.readEntitlements(from: url) ?? [:]
+            result.entitlements = entitlements.keys.sorted().compactMap { key in
+                guard let value = entitlements[key] else { return nil }
+                return (key, PlistEdit.Kind.text(value))
+            }
+            result.extensions = IPAInspector.extensionNames(in: url)
+            return result
+        }.value
+        isLoading = false
+        snapshot = read
+        // Fill identity fields that are still empty, never overwriting an edit.
+        if !read.missing {
+            if store.config.bundleIdentifier.trimmed.isEmpty { store.config.bundleIdentifier = read.bundleID }
+            if store.config.displayName.trimmed.isEmpty { store.config.displayName = read.name }
+            if store.config.version.trimmed.isEmpty { store.config.version = read.version }
+            if store.config.build.trimmed.isEmpty { store.config.build = read.build }
+        }
     }
 
     // MARK: Intro
@@ -103,12 +149,21 @@ struct AppConfigView: View {
     private var introCard: some View {
         PanelCard {
             VStack(alignment: .leading, spacing: 10) {
-                Text(L("Applied when the custom .ipa is signed"))
+                Text(snapshot.missing ? L("No .ipa imported yet") : L("Read from %@", snapshot.name))
                     .font(.headline)
-                Text(L("SideInstaller rewrites the archive — renaming it, editing its plists, dropping extensions, loading tweaks — then signs the result with your Apple ID. The imported file is replaced, so a refresh later reinstalls the same configured build."))
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                if snapshot.missing {
+                    Text(L("Import a build on the Install tab and its values appear here, ready to change."))
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text(L("Everything below is applied when this build is signed. The imported file is replaced, so a refresh later reinstalls the same configured build."))
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if isLoading {
+                        ProgressView().controlSize(.small)
+                    }
+                }
                 if !store.config.summary.isEmpty {
                     VStack(alignment: .leading, spacing: 4) {
                         ForEach(store.config.summary, id: \.self) { line in
@@ -118,6 +173,11 @@ struct AppConfigView: View {
                         }
                     }
                     .padding(.top, 2)
+                }
+                if let note {
+                    Text(note)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
         }
@@ -129,98 +189,141 @@ struct AppConfigView: View {
         PanelCard {
             VStack(alignment: .leading, spacing: 14) {
                 header(L("Identity"), systemImage: "app.badge")
-
-                Button {
-                    let imported = store.importFromCurrentIPA()
-                    importNote = imported
-                        ? L("Filled in from the imported .ipa.")
-                        : L("Import a .ipa on the Install tab first.")
-                } label: {
-                    Label(L("Import from the .ipa"), systemImage: "square.and.arrow.down.on.square")
-                        .font(.footnote.weight(.semibold))
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-
-                field(L("Bundle ID"), hint: "com.example.app",
+                field(L("Bundle ID"), hint: snapshot.bundleID.isEmpty ? "com.example.app" : snapshot.bundleID,
                       text: $store.config.bundleIdentifier)
                 Text(L("A new bundle ID installs alongside the original and registers its own App ID, which a free Apple ID has few of. Extensions are renamed to sit under it."))
                     .font(.caption)
                     .foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
-
-                field(L("Display name"), hint: L("As it appears on the Home Screen"),
+                field(L("Display name"), hint: snapshot.name.isEmpty ? L("Name on the Home Screen") : snapshot.name,
                       text: $store.config.displayName)
                 HStack(spacing: 12) {
-                    field(L("Version"), hint: "1.0", text: $store.config.version)
-                    field(L("Build"), hint: "1", text: $store.config.build)
-                }
-                if let importNote {
-                    Text(importNote)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    field(L("Version"), hint: snapshot.version.isEmpty ? "1.0" : snapshot.version,
+                          text: $store.config.version)
+                    field(L("Build"), hint: snapshot.build.isEmpty ? "1" : snapshot.build,
+                          text: $store.config.build)
                 }
             }
         }
     }
 
-    // MARK: Plists
+    // MARK: Info.plist
 
     private var plistCard: some View {
         PanelCard {
             VStack(alignment: .leading, spacing: 12) {
                 header(L("Info.plist"), systemImage: "list.bullet.rectangle")
-                Text(L("Top-level keys added or replaced in the app's Info.plist — a URL scheme, a supported device, `UIFileSharingEnabled`, anything the build ships with."))
+                Text(L("Keys the build already has, and any you add. Everything here ends up as a top-level key in the app's Info.plist."))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                editRows($store.config.plistEdits, addLabel: L("Add a key"))
+
+                if !snapshot.plist.isEmpty {
+                    DisclosureGroup {
+                        VStack(alignment: .leading, spacing: 6) {
+                            ForEach(snapshot.plist, id: \.key) { entry in
+                                Button {
+                                    adoptPlistEntry(entry)
+                                } label: {
+                                    HStack(alignment: .top, spacing: 8) {
+                                        VStack(alignment: .leading, spacing: 1) {
+                                            Text(entry.key)
+                                                .font(.caption.monospaced())
+                                            Text(entry.text)
+                                                .font(.caption2)
+                                                .foregroundStyle(.tertiary)
+                                                .lineLimit(2)
+                                        }
+                                        Spacer(minLength: 4)
+                                        Image(systemName: isEdited(entry.key)
+                                              ? "pencil.circle.fill" : "plus.circle")
+                                            .font(.footnote)
+                                            .foregroundStyle(isEdited(entry.key) ? Theme.accent2 : .secondary)
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.top, 6)
+                    } label: {
+                        Text(L("In the build (%ld keys)", snapshot.plist.count))
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                editRows($store.config.plistEdits, addLabel: L("Add a key"), plistKeys: true)
             }
         }
     }
+
+    /// True when this key is already in the configuration's edit list.
+    private func isEdited(_ key: String) -> Bool {
+        store.config.plistEdits.contains { $0.key == key }
+    }
+
+    /// Tapping a key in the build adds it to the edit list, prefilled — so
+    /// changing something is one tap, not a retyped key.
+    private func adoptPlistEntry(_ entry: (key: String, kind: PlistEdit.Kind, text: String)) {
+        if let index = store.config.plistEdits.firstIndex(where: { $0.key == entry.key }) {
+            store.config.plistEdits.remove(at: index)
+            note = L("%@ set back to the build's value.", entry.key)
+            return
+        }
+        store.config.plistEdits.append(PlistEdit(key: entry.key, kind: entry.kind, value: entry.text))
+        note = L("%@ will be written as it is now — change the value below.", entry.key)
+    }
+
+    // MARK: Entitlements
 
     private var entitlementsCard: some View {
         PanelCard {
             VStack(alignment: .leading, spacing: 12) {
                 header(L("Entitlements"), systemImage: "checkmark.shield")
-                Text(L("Written into the app's archived entitlements file. The profile your Apple ID issues decides what's actually granted — asking for something it doesn't allow fails the install rather than granting it."))
+                Text(L("Added to the app's archived entitlements file. The profile your Apple ID issues decides what's actually granted — asking for something it doesn't allow fails the install rather than granting it."))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                editRows($store.config.entitlements, addLabel: L("Add an entitlement"))
+
+                if !snapshot.entitlements.isEmpty {
+                    DisclosureGroup {
+                        VStack(alignment: .leading, spacing: 4) {
+                            ForEach(snapshot.entitlements, id: \.key) { entry in
+                                HStack(alignment: .top, spacing: 8) {
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        Text(entry.key)
+                                            .font(.caption.monospaced())
+                                        Text(entry.text)
+                                            .font(.caption2)
+                                            .foregroundStyle(.tertiary)
+                                            .lineLimit(2)
+                                    }
+                                    Spacer(minLength: 4)
+                                }
+                            }
+                        }
+                        .padding(.top, 6)
+                    } label: {
+                        Text(L("In the build's profile (%ld)", snapshot.entitlements.count))
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                editRows($store.config.entitlements, addLabel: L("Add an entitlement"), plistKeys: false)
             }
         }
     }
 
-    /// The editor shared by the two plist lists: key, type, value, remove.
-    private func editRows(_ edits: Binding<[PlistEdit]>, addLabel: String) -> some View {
+    // MARK: The editor shared by both lists
+
+    private func editRows(_ edits: Binding<[PlistEdit]>, addLabel: String,
+                          plistKeys: Bool) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             ForEach(edits) { $edit in
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 8) {
-                        TextField(L("Key"), text: $edit.key)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            .font(.footnote.monospaced())
-                        Picker("", selection: $edit.kind) {
-                            ForEach(PlistEdit.Kind.allCases) { kind in
-                                Text(kind.title).tag(kind)
-                            }
-                        }
-                        .labelsHidden()
-                        .pickerStyle(.menu)
-                        Button(role: .destructive) {
-                            edits.wrappedValue.removeAll { $0.id == edit.id }
-                        } label: {
-                            Image(systemName: "trash").font(.footnote)
-                        }
-                        .buttonStyle(.borderless)
-                    }
-                    valueField(for: $edit)
+                PlistEditRow(edit: $edit, plistKeys: plistKeys) {
+                    edits.wrappedValue.removeAll { $0.id == edit.id }
                 }
-                .padding(10)
-                .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(.white.opacity(0.05)))
             }
             Button {
                 edits.wrappedValue.append(PlistEdit(key: "", kind: .string, value: ""))
@@ -232,39 +335,18 @@ struct AppConfigView: View {
         }
     }
 
-    @ViewBuilder
-    private func valueField(for edit: Binding<PlistEdit>) -> some View {
-        switch edit.wrappedValue.kind {
-        case .boolean:
-            Toggle(isOn: Binding(get: { (edit.wrappedValue.value as NSString).boolValue },
-                                 set: { edit.wrappedValue.value = $0 ? "true" : "false" })) {
-                Text(L("On"))
-                    .font(.caption)
-            }
-            .toggleStyle(.switch)
-            .controlSize(.mini)
-        default:
-            TextField(edit.wrappedValue.kind == .array ? L("a, b, c") : L("Value"),
-                      text: edit.value)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .font(.footnote)
-                .fieldBackground()
-        }
-    }
-
     // MARK: Extensions
 
     private var extensionsCard: some View {
         PanelCard {
             VStack(alignment: .leading, spacing: 12) {
                 header(L("Extensions"), systemImage: "puzzlepiece.extension")
-                if extensions.isEmpty {
+                if snapshot.extensions.isEmpty {
                     Text(L("The imported .ipa lists no extension."))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {
-                    ForEach(extensions, id: \.self) { name in
+                    ForEach(snapshot.extensions, id: \.self) { name in
                         Toggle(isOn: Binding(
                             get: { !store.config.disabledExtensions.contains(name) },
                             set: { keep in
@@ -302,76 +384,89 @@ struct AppConfigView: View {
         }
     }
 
-    // MARK: Tweaks
+    // MARK: Tweaks and injectors
 
     private var tweaksCard: some View {
         PanelCard {
             VStack(alignment: .leading, spacing: 14) {
                 HStack {
-                    header(L("Tweaks"), systemImage: "syringe")
+                    header(L("Tweaks & injectors"), systemImage: "syringe")
                     Spacer()
                     Button {
                         showTweakPicker = true
                     } label: {
-                        Label(L("Add"), systemImage: "plus")
+                        Label(L("Add tweak"), systemImage: "plus")
                             .font(.footnote.weight(.semibold))
                     }
                     .buttonStyle(.borderless)
                 }
 
                 if store.config.tweaks.isEmpty {
-                    Text(L("No tweaks. A .dylib or a .deb added here is unpacked into the app's Frameworks folder and loaded by its main executable, the way a jailbreak tweak is."))
+                    Text(L("A .dylib or a .deb added here is unpacked into the app's Frameworks folder and loaded by its main executable, the way a jailbreak tweak is. Its dependencies are read when it's added, so the framework it hooks with is loaded too."))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
-                } else {
-                    ForEach(store.config.tweaks) { tweak in
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack(spacing: 8) {
-                                Image(systemName: tweak.isDeb ? "shippingbox.fill" : "doc.fill")
-                                    .font(.footnote)
-                                    .foregroundStyle(Theme.accent2)
-                                Text(tweak.name)
-                                    .font(.subheadline.weight(.medium))
-                                    .lineLimit(1)
-                                Spacer(minLength: 4)
-                                Button(role: .destructive) {
-                                    store.removeTweak(tweak.id)
-                                } label: {
-                                    Image(systemName: "trash").font(.footnote)
-                                }
-                                .buttonStyle(.borderless)
+                }
+
+                ForEach(store.config.tweaks) { tweak in
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 8) {
+                            Image(systemName: tweak.isDeb ? "shippingbox.fill" : "doc.fill")
+                                .font(.footnote)
+                                .foregroundStyle(Theme.accent2)
+                            Text(tweak.name)
+                                .font(.subheadline.weight(.medium))
+                                .lineLimit(1)
+                            Spacer(minLength: 4)
+                            Button(role: .destructive) {
+                                store.removeTweak(tweak.id)
+                            } label: {
+                                Image(systemName: "trash").font(.footnote)
                             }
-                            HStack(spacing: 6) {
-                                Text(tweak.isDeb ? L(".deb package") : L(".dylib"))
-                                    .font(.caption2)
-                                    .foregroundStyle(.tertiary)
-                                if let kind = tweak.requiresInjector {
-                                    Text(L("needs %@", kind.title))
-                                        .font(.caption2)
-                                        .foregroundStyle(store.injector(for: kind) == nil ? .orange : .secondary)
-                                }
-                            }
-                            Toggle(isOn: Binding(get: { tweak.weak },
-                                                 set: { store.setWeak($0, for: tweak.id) })) {
-                                Text(L("Optional (load only if present)"))
-                                    .font(.caption)
-                            }
-                            .toggleStyle(.switch)
-                            .controlSize(.mini)
+                            .buttonStyle(.borderless)
                         }
-                        .padding(.vertical, 4)
-                        if tweak.id != store.config.tweaks.last?.id { Divider().opacity(0.15) }
+                        HStack(spacing: 6) {
+                            Text(tweak.isDeb ? L(".deb package") : L(".dylib"))
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                            if let kind = tweak.requiresInjector {
+                                Text(store.injector(for: kind) == nil
+                                     ? L("needs %@ (not added)", kind.title)
+                                     : L("uses %@", kind.title))
+                                    .font(.caption2)
+                                    .foregroundStyle(store.injector(for: kind) == nil ? .orange : .secondary)
+                            }
+                        }
+                        Toggle(isOn: Binding(get: { tweak.weak },
+                                             set: { store.setWeak($0, for: tweak.id) })) {
+                            Text(L("Optional (load only if present)"))
+                                .font(.caption)
+                        }
+                        .toggleStyle(.switch)
+                        .controlSize(.mini)
+                    }
+                    .padding(.vertical, 4)
+                    Divider().opacity(0.15)
+                }
+
+                // The frameworks themselves live in the same card: a tweak
+                // without its injector doesn't launch, so they're one decision.
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(L("Injection frameworks"))
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    ForEach(TweakInjectorKind.allCases) { kind in
+                        injectorRow(kind)
+                    }
+                    if !store.missingInjectors.isEmpty {
+                        Text(L("Needed by an added tweak: %@.", store.missingInjectors.map(\.title).joined(separator: ", ")))
+                            .font(.caption)
+                            .foregroundStyle(.orange)
                     }
                 }
+                .padding(.top, 2)
 
-                if let tweakError {
-                    Text(tweakError)
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                }
-
-                Text(L("Tweaks have to be built for this iPhone: arm64, iOS 17.4 or later. Rootless packages (`/var/jb`) work because only their libraries are taken. Injecting needs room in the app's Mach-O header, which Xcode builds have."))
+                Text(L("Tweaks have to be built for this iPhone: arm64, iOS 17.4 or later. Rootless packages work, since only their libraries are taken. Injecting needs room in the app's Mach-O header, which Xcode builds have."))
                     .font(.caption)
                     .foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -379,52 +474,54 @@ struct AppConfigView: View {
         }
     }
 
-    // MARK: Injectors
-
-    private var injectorsCard: some View {
-        PanelCard {
-            VStack(alignment: .leading, spacing: 12) {
-                header(L("Injectors"), systemImage: "powerplug")
-                Text(L("The framework a tweak hooks with. SideInstaller can't ship these, so add the .dylib from a copy you have. A package's dependencies pick which one is loaded."))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                ForEach(TweakInjectorKind.allCases) { kind in
-                    HStack(spacing: 10) {
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(kind.title)
-                                .font(.subheadline)
-                            if let injector = store.injector(for: kind) {
-                                Text(injector.fileName)
-                                    .font(.caption2.monospaced())
-                                    .foregroundStyle(.tertiary)
-                                    .lineLimit(1)
-                            } else {
-                                Text(L("Not added"))
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        Spacer(minLength: 4)
-                        if store.injector(for: kind) != nil {
-                            Button(role: .destructive) {
-                                store.removeInjector(kind)
-                            } label: {
-                                Image(systemName: "trash").font(.footnote)
-                            }
-                            .buttonStyle(.borderless)
-                        } else {
-                            Button(L("Add")) { injectedFor = kind }
-                                .font(.footnote.weight(.semibold))
-                                .buttonStyle(.borderless)
-                        }
-                    }
-                    if kind != TweakInjectorKind.allCases.last { Divider().opacity(0.15) }
+    private func injectorRow(_ kind: TweakInjectorKind) -> some View {
+        let entry = InjectorCatalog.entry(for: kind)
+        let installed = store.injector(for: kind)
+        let busy = store.injectorStatus[kind] == L("Downloading…")
+        return HStack(alignment: .top, spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(kind.title)
+                    .font(.subheadline)
+                if let installed {
+                    Text(installed.fileName)
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                } else if let status = store.injectorStatus[kind] {
+                    Text(status)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                } else {
+                    Text(entry.note)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(2)
                 }
-                if !store.missingInjectors.isEmpty {
-                    Text(L("Needed by an added tweak: %@.", store.missingInjectors.map(\.title).joined(separator: ", ")))
-                        .font(.caption)
-                        .foregroundStyle(.orange)
+            }
+            Spacer(minLength: 4)
+            if busy {
+                ProgressView().controlSize(.small)
+            } else if installed != nil {
+                Button(role: .destructive) {
+                    store.removeInjector(kind)
+                    store.injectorStatus[kind] = nil
+                } label: {
+                    Image(systemName: "trash").font(.footnote)
+                }
+                .buttonStyle(.borderless)
+            } else {
+                HStack(spacing: 8) {
+                    if entry.source != nil {
+                        Button(L("Get")) {
+                            Task { await store.downloadInjector(kind) }
+                        }
+                        .font(.footnote.weight(.semibold))
+                        .buttonStyle(.borderless)
+                    }
+                    Button(L("Add")) { injectedFor = kind }
+                        .font(.footnote.weight(.semibold))
+                        .buttonStyle(.borderless)
                 }
             }
         }
@@ -460,6 +557,7 @@ struct AppConfigView: View {
             }
             Button(role: .destructive) {
                 store.reset()
+                note = L("Configuration cleared.")
             } label: {
                 Label(L("Clear the configuration"), systemImage: "arrow.uturn.backward")
                     .font(.footnote.weight(.semibold))
@@ -520,21 +618,175 @@ private extension UIWindowScene {
     var keyWindow: UIWindow? { windows.first { $0.isKeyWindow } }
 }
 
-// MARK: - Starting from the imported build
+// MARK: - One plist edit
 
-extension AppConfigStore {
-    /// Fills the identity fields from the app that's currently imported, so a
-    /// change starts from what the build already says.
-    /// Reads the app currently in the custom slot, so a change starts from
-    /// what the build already says.
-    @discardableResult
-    func importFromCurrentIPA() -> Bool {
-        guard let entry = IPALibrary.customImport(),
-              let info = IPALibrary.appInfo(at: entry.url) else { return false }
-        config.bundleIdentifier = info.bundleID
-        config.displayName = info.name
-        config.version = info.version ?? ""
-        return true
+/// A key, its type, and its value — with the Apple key catalogue behind the
+/// field for completions, and the editor the type calls for.
+private struct PlistEditRow: View {
+    @Binding var edit: PlistEdit
+    /// True for `Info.plist` keys, which have the catalogue; entitlements don't.
+    var plistKeys: Bool
+    var onDelete: () -> Void
+
+    @FocusState private var keyFocused: Bool
+
+    private var spec: PlistKeySpec? { PlistCatalog.spec(for: edit.key.trimmed) }
+
+    /// Keys worth offering under the field: what's been typed, minus the one
+    /// that's already exactly there.
+    private var suggestions: [PlistKeySpec] {
+        guard plistKeys else { return [] }
+        let query = edit.key.trimmed
+        guard spec == nil else { return [] }
+        let matches = PlistCatalog.matching(query)
+        return Array(matches.prefix(query.isEmpty ? 6 : 8))
     }
 
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                TextField(plistKeys ? "CFBundle…" : "com.apple.developer…", text: $edit.key)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .font(.footnote.monospaced())
+                    .focused($keyFocused)
+                Picker("", selection: $edit.kind) {
+                    ForEach(PlistEdit.Kind.allCases) { kind in
+                        Text(kind.title).tag(kind)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                Button(role: .destructive, action: onDelete) {
+                    Image(systemName: "trash").font(.footnote)
+                }
+                .buttonStyle(.borderless)
+            }
+
+            if keyFocused, !suggestions.isEmpty {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(suggestions) { suggestion in
+                        Button {
+                            edit.key = suggestion.key
+                            edit.kind = suggestion.kind
+                            if let first = suggestion.values.first, edit.value.isEmpty {
+                                edit.value = first
+                            }
+                            keyFocused = false
+                        } label: {
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(suggestion.key)
+                                    .font(.caption.monospaced())
+                                Text(suggestion.summary)
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
+                                    .lineLimit(2)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(8)
+                .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(.white.opacity(0.05)))
+            }
+
+            if let spec {
+                Text(spec.summary)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            valueEditor
+        }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .fill(.white.opacity(0.05)))
+        .onChange(of: edit.key) { _, key in
+            // Picking a known key also picks the editor it needs.
+            guard let found = PlistCatalog.spec(for: key.trimmed), found.kind != edit.kind else { return }
+            edit.kind = found.kind
+        }
+    }
+
+    @ViewBuilder
+    private var valueEditor: some View {
+        // A documented enumeration gets a menu of its values; anything else an
+        // editor for its type.
+        if let spec, !spec.values.isEmpty, edit.kind == .string || edit.kind == .array {
+            if edit.kind == .array {
+                listPicker(spec.values)
+            } else {
+                Picker(L("Value"), selection: $edit.value) {
+                    ForEach(spec.values, id: \.self) { Text($0).tag($0) }
+                    if !spec.values.contains(edit.value) {
+                        Text(edit.value.isEmpty ? L("Not set") : edit.value).tag(edit.value)
+                    }
+                }
+                .pickerStyle(.menu)
+                .font(.footnote)
+            }
+        } else {
+            switch edit.kind {
+            case .boolean:
+                Toggle(isOn: Binding(get: { (edit.value as NSString).boolValue },
+                                     set: { edit.value = $0 ? "true" : "false" })) {
+                    Text(L("On")).font(.caption)
+                }
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+            case .array:
+                TextField(L("a, b, c"), text: $edit.value)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .font(.footnote)
+                    .fieldBackground()
+            case .integer:
+                TextField("0", text: $edit.value)
+                    .keyboardType(.numbersAndPunctuation)
+                    .font(.footnote)
+                    .fieldBackground()
+            case .string:
+                TextField(L("Value"), text: $edit.value)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .font(.footnote)
+                    .fieldBackground()
+            }
+        }
+    }
+
+    /// The array editor for keys whose values Apple enumerates: tap to add or
+    /// drop a value from the comma-separated list.
+    private func listPicker(_ values: [String]) -> some View {
+        let chosen = edit.value.split(separator: ",").map {
+            $0.trimmingCharacters(in: .whitespaces)
+        }.filter { !$0.isEmpty }
+        return VStack(alignment: .leading, spacing: 6) {
+            ForEach(values, id: \.self) { value in
+                Button {
+                    var list = chosen
+                    if let index = list.firstIndex(of: value) {
+                        list.remove(at: index)
+                    } else {
+                        list.append(value)
+                    }
+                    edit.value = list.joined(separator: ", ")
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: chosen.contains(value) ? "checkmark.circle.fill" : "circle")
+                            .font(.caption)
+                            .foregroundStyle(chosen.contains(value) ? Theme.accent2 : .secondary)
+                        Text(value)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.primary)
+                        Spacer(minLength: 0)
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
 }
