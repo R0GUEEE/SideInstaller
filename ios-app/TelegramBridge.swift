@@ -30,25 +30,35 @@ enum TelegramBridge {
     /// The channel's feed, as entries. Throws when the bridge has nothing.
     static func entries(channel: String, limit: Int = 100)
         async throws -> (name: String, entries: [MarketEntry]) {
-        // The feed takes `?limit=`, and answers with far more than its default
-        // ten when asked — 49 items for a limit of 50 was measured.
-        guard let url = URL(string: "\(host)/rss/\(channel)?limit=\(max(10, limit))") else {
-            throw Failure(message: L("That channel name can't be part of a URL."))
+        // The feed takes `?limit=`, and answers far more than its default ten
+        // when asked (99 items at limit=100, measured). It 500s under load, so a
+        // failed request is retried once and then tried without the limit — ten
+        // posts beat an unreadable channel.
+        var xml: String?
+        for candidate in [max(10, limit), max(10, limit), 0] {
+            guard let url = URL(string: candidate == 0
+                                ? "\(host)/rss/\(channel)"
+                                : "\(host)/rss/\(channel)?limit=\(candidate)") else { continue }
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 25
+            request.setValue("SideInstaller", forHTTPHeaderField: "User-Agent")
+            guard let (data, response) = try? await URLSession.shared.data(for: request),
+                  let http = response as? HTTPURLResponse else { continue }
+            if (200...299).contains(http.statusCode), data.count < 8 << 20,
+               let text = String(data: data, encoding: .utf8), text.contains("<item") {
+                xml = text
+                break
+            }
+            if http.statusCode == 404 {
+                throw Failure(message: L("@%@ isn't on the bridge either.", channel))
+            }
+            // Anything else is worth one more try, then the plain feed.
+            try? await Task.sleep(nanoseconds: 800_000_000)
         }
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 25
-        request.setValue("SideInstaller", forHTTPHeaderField: "User-Agent")
-        let (data, response) = try await URLSession.shared.data(for: request)
-        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
-            throw Failure(message: L("The Telegram bridge answered %ld for @%@.", http.statusCode, channel))
+        guard let xml else {
+            throw Failure(message: L("The Telegram bridge couldn't be reached for @%@.", channel))
         }
-        guard data.count < 8 << 20 else {
-            throw Failure(message: L("The bridge's reply was unexpectedly large."))
-        }
-        let xml = String(decoding: data, as: UTF8.self)
-        guard xml.contains("<item") else {
-            throw Failure(message: L("The bridge has no posts for @%@.", channel))
-        }
+
         let title = firstMatch(#"<channel>\s*<title>(?:<!\[CDATA\[)?([^<\]]*)"#, in: xml)
             .map(decodeEntities) ?? "@\(channel)"
         // The channel's own picture, used for any app without a preview image.
