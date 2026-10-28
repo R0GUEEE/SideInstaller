@@ -38,12 +38,33 @@ jobs:
           set -euo pipefail
           command -v curl >/dev/null || (apt-get update -qq && apt-get install -y -qq curl)
           install -d "$RUNNER_TEMP/src"
-          for u in https://ipa.cypwn.xyz/cypwn.json https://repository.apptesters.org \
-                   https://apps.altstore.io https://quarksources.github.io/altstore-complete.json; do
-            n=$(basename "$u"); [ "$n" = "apps.altstore.io" ] && n=altstore
-            [ "$n" = "altstore-complete.json" ] || true
-            curl -sL -m 60 "$u" -o "$RUNNER_TEMP/src/$n.json"
-          done
+          # Fetch and validate before parsing: an empty body would look like a
+          # source with no apps, which is the bug this check exists to catch.
+          fetch() {
+            name="$1"; url="$2"
+            for attempt in 1 2 3; do
+              curl -sL -m 60 --retry 2 -A "SideInstaller/source-parser" "$url" \
+                -o "$RUNNER_TEMP/src/$name.json" && break
+              sleep 5
+            done
+            python3 - "$RUNNER_TEMP/src/$name.json" "$url" <<'PY'
+          import json, os, sys
+          path, url = sys.argv[1], sys.argv[2]
+          if not os.path.exists(path) or os.path.getsize(path) < 500:
+              sys.exit("download too small: " + url)
+          try:
+              doc = json.load(open(path))
+          except Exception as e:
+              sys.exit("not JSON: %s (%s)" % (url, e))
+          if not doc.get("apps"):
+              sys.exit("no apps in document: " + url)
+          print("%-28s %6d apps, %d bytes" % (url, len(doc["apps"]), os.path.getsize(path)))
+          PY
+          }
+          fetch cypwn   https://ipa.cypwn.xyz/cypwn.json
+          fetch apptesters https://repository.apptesters.org
+          fetch altstore https://apps.altstore.io
+          fetch quark   https://quarksources.github.io/altstore-complete.json
           chmod +x /tmp/parser-check
           ls -l /tmp/parser-check
           # The Swift runtime lives in the toolchain, which the container's
