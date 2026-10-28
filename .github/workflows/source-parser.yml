@@ -43,4 +43,9 @@ jobs:
             [ "$n" = "altstore-complete.json" ] || true
             curl -sL -m 60 "$u" -o "$RUNNER_TEMP/src/$n.json"
           done
+          chmod +x /tmp/parser-check
+          ls -l /tmp/parser-check
+          # The Swift runtime lives in the toolchain, which the container's
+          # default library path doesn't always include.
+          export LD_LIBRARY_PATH="/usr/lib/swift/linux:${LD_LIBRARY_PATH:-}"
           /tmp/parser-check "$RUNNER_TEMP"/src/*.json
