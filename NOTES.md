@@ -1332,3 +1332,18 @@ Two features added on top of the install pipeline: browsing AltStore sources, an
   `AltSource`. Every one was superseded — the marketplace's rail covers a source, and the merged
   page covers an app — and each was a second copy of the catalogue on screen.
 
+### Marketplace: controls on top, sources in a manager
+
+- **Why the chips, not tabs.** A `TabView` inside a tab is a lie to the user (two tab bars) and a
+  `Menu` hides the counts. A horizontal `ScrollView` of capsule chips keeps the counts visible,
+  scrolls sideways for a long source list, and costs one row of height.
+- **Categories went to the bottom** as a `safeAreaInset(edge: .bottom)`, so they stay put while
+  the list scrolls and never eat into the top bar's room. The all-categories chip clears the
+  filter only when a category is active, so it doesn't fight the source chips.
+- **Search is an inline field** rather than `.searchable`: the system search field animates into
+  the navigation bar and can't coexist with a second row of controls, which this screen needs.
+- **`SourceManagerView`** does the bulk work: lines parsed and validated through
+  `SourceStore.sourceURL` so the button's count matches what will be added; adds go through the
+  store one at a time (each fetches and indexes, and the store must stay consistent); failures are
+  reported per link rather than aborting the batch.
+

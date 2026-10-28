@@ -5,6 +5,15 @@ All notable changes to SideInstaller are documented here.
 ## Unreleased
 
 ### Changed
+- **The marketplace's controls moved to the top.** The left rail is gone: a search field, a sort
+  menu and a row of source chips run along the top, where a thumb already is and where they leave
+  the full width for apps. Categories became a bar pinned along the bottom — a secondary filter,
+  out of the way of the list.
+- **Sources have a manager of their own** (the *Sources* chip opens it): several links pasted at
+  once or chosen from a text file, each source's app count, last fetch and any error, refresh one or
+  all, remove one (with what it costs), and export the list for another device.
+
+### Changed
 - **The marketplace is lighter and fetches faster.** A source is decoded once into the few fields a
   row shows — name, developer, category, icon, releases — and the document itself (descriptions,
   screenshots, news) is never kept, so a ten-thousand-app source costs a fraction of the memory it
