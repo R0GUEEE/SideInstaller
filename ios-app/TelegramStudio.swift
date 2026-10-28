@@ -164,7 +164,7 @@ final class TelegramStudio: ObservableObject {
             scanNote = L("Nothing to generate yet — scan first.")
             return nil
         }
-        let document = Self.document(from: entries, channels: channels)
+        let document = Self.document(from: entries)
         guard let data = try? JSONSerialization.data(withJSONObject: document,
                                                      options: [.prettyPrinted, .sortedKeys])
         else { return nil }
