@@ -67,6 +67,39 @@ struct MarketplaceView: View {
         let app: AltApp
         let source: AltSource
         var id: String { source.id + "/" + app.id }
+
+        /// When this app was last updated, for the date sorts. Sources that
+        /// omit the date sort last rather than first.
+        var date: Date? { app.latest?.dateValue }
+
+        /// The newest release's download size, when the source lists one.
+        var size: Int64? { app.latest?.size }
+    }
+
+    /// One app as the list shows it: every source's copy of it merged, with
+    /// every release from all of them, so a version picker has the lot.
+    struct MergedApp: Identifiable {
+        let key: String
+        let name: String
+        let developer: String?
+        let subtitle: String?
+        let iconURL: String?
+        let categoryID: String
+        /// Newest first, one per version string, each with the source it's in.
+        let versions: [(version: AltVersion, source: AltSource)]
+
+        var id: String { key }
+        var latest: AltVersion? { versions.first?.version }
+        var date: Date? { latest?.dateValue }
+        var size: Int64? { latest?.size }
+        var icon: URL? { URL(string: iconURL ?? "") }
+        var category: MarketCategory { MarketCategory.of(categoryID) }
+
+        /// The release `version` picks out, or the newest.
+        func pick(_ chosen: AltVersion?) -> (version: AltVersion, source: AltSource)? {
+            guard let chosen else { return versions.first }
+            return versions.first { $0.version.id == chosen.id } ?? versions.first
+        }
     }
 
     /// What the right-hand side is showing.
@@ -77,17 +110,44 @@ struct MarketplaceView: View {
         case source(String)
     }
 
+    /// The orders the list can be read in.
+    enum SortOrder: String, CaseIterable, Identifiable {
+        case name, newest, oldest, size
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .name:   return L("Name")
+            case .newest: return L("Newest")
+            case .oldest: return L("Oldest")
+            case .size:   return L("Size")
+            }
+        }
+
+        var icon: String {
+            switch self {
+            case .name:   return "textformat.abc"
+            case .newest: return "calendar.badge.clock"
+            case .oldest: return "calendar"
+            case .size:   return "arrow.up.arrow.down.square"
+            }
+        }
+    }
+
     @State private var filter: Filter? = .all
     @State private var query = ""
-    /// Every app, one entry per bundle ID (the newest release wins), for the
-    /// category and featured views.
-    @State private var catalog: [Listing] = []
+    /// Every app, one entry per bundle ID, with all of its versions merged.
+    @State private var catalog: [MergedApp] = []
     /// The same apps kept per source, so a source's view shows everything it
     /// carries. Filtering the de-duplicated catalogue by source dropped any app
     /// a later source also listed — which is why a source with six apps showed
     /// none.
-    @State private var bySource: [String: [Listing]] = [:]
-    @State private var selected: Listing?
+    @State private var bySource: [String: [MergedApp]] = [:]
+    /// How the list is ordered. Applies to every view, including a source's own
+    /// shelf, so the same list can be read newest-first or alphabetically.
+    @State private var sort: SortOrder = .name
+    @State private var selected: MergedApp?
     @State private var showAdd = false
     @State private var showSettings = false
 
@@ -102,9 +162,9 @@ struct MarketplaceView: View {
             }
             .background(AppBackground())
             .toolbar { settingsToolbarItem(isPresented: $showSettings) }
-            .sheet(item: $selected) { listing in
+            .sheet(item: $selected) { app in
                 NavigationStack {
-                    AltAppView(app: listing.app, source: listing.source)
+                    MergerAppView(app: app)
                         .toolbar {
                             ToolbarItem(placement: .confirmationAction) {
                                 Button(L("Done")) { selected = nil }
@@ -250,34 +310,62 @@ struct MarketplaceView: View {
                     // Compact rows rather than a grid of cards: more apps per
                     // screen, and the install button sits on the row.
                     LazyVStack(spacing: 8) {
-                        ForEach(visible) { listing in
+                        ForEach(visible) { app in
                             HStack(spacing: 10) {
                                 Button {
-                                    selected = listing
+                                    selected = app
                                 } label: {
-                                    ListingRow(listing: listing)
+                                    ListingRow(app: app)
                                 }
                                 .buttonStyle(.plain)
 
+                                // One tap installs the newest; the menu offers
+                                // every version the sources carry.
                                 Button {
-                                    install(listing)
+                                    install(app)
                                 } label: {
                                     Image(systemName: "arrow.down.circle.fill")
                                         .font(.title3)
                                         .foregroundStyle(Theme.accent2)
                                 }
                                 .buttonStyle(.plain)
-                                .disabled(listing.app.latest?.url == nil || engine.isRunning)
-                                .padding(.trailing, 4)
+                                .disabled(app.latest?.url == nil || engine.isRunning)
+
+                                if app.versions.count > 1 {
+                                    Menu {
+                                        ForEach(app.versions, id: \.version.id) { entry in
+                                            Button {
+                                                install(app, version: entry.version)
+                                            } label: {
+                                                Text(versionLabel(entry.version))
+                                            }
+                                        }
+                                    } label: {
+                                        Image(systemName: "chevron.down.circle")
+                                            .font(.title3)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
                             }
+                            .padding(.trailing, 2)
                             .contextMenu {
                                 Button {
-                                    install(listing)
+                                    install(app)
                                 } label: {
-                                    Label(L("Install"), systemImage: "square.and.arrow.down")
+                                    Label(L("Install newest"), systemImage: "square.and.arrow.down")
                                 }
+                                ForEach(app.versions, id: \.version.id) { entry in
+                                    Button {
+                                        install(app, version: entry.version)
+                                    } label: {
+                                        Label(L("Install %@", versionLabel(entry.version)),
+                                              systemImage: "clock.arrow.circlepath")
+                                    }
+                                }
+                                Divider()
                                 Button {
-                                    selected = listing
+                                    selected = app
                                 } label: {
                                     Label(L("Details"), systemImage: "info.circle")
                                 }
@@ -302,6 +390,17 @@ struct MarketplaceView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Spacer(minLength: 0)
+            Menu {
+                Picker(L("Sort by"), selection: $sort) {
+                    ForEach(SortOrder.allCases) { order in
+                        Label(order.title, systemImage: order.icon).tag(order)
+                    }
+                }
+            } label: {
+                Label(sort.title, systemImage: "arrow.up.arrow.down")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Theme.accent2)
+            }
         }
         .padding(.bottom, 2)
     }
@@ -363,37 +462,86 @@ struct MarketplaceView: View {
         }
     }
 
-    /// Every app in every source, one entry per bundle ID (the newest release a
-    /// source lists wins), so the same app in two sources isn't listed twice.
+    /// Every app in every source, one entry per bundle ID. Two sources listing
+    /// the same app are one entry, and the union of their releases is what the
+    /// version picker offers.
     private func rebuild() {
-        var byBundle: [String: Listing] = [:]
+        struct Group {
+            var listing: Listing
+            var versions: [AltVersion]
+            var sources: [AltSource]
+        }
+        var groups: [String: Group] = [:]
         var order: [String] = []
-        var grouped: [String: [Listing]] = [:]
+        var perSource: [String: [String]] = [:]
+
         for loaded in store.sources {
             guard let source = loaded.source else { continue }
             for app in source.installableApps {
-                let listing = Listing(app: app, source: source)
-                grouped[loaded.id, default: []].append(listing)
                 let key = app.bundleIdentifier ?? app.id
-                if let existing = byBundle[key] {
-                    let old = existing.app.latest?.version ?? "0"
-                    let new = app.latest?.version ?? "0"
-                    if new.compare(old, options: .numeric) == .orderedAscending { continue }
-                } else {
+                if groups[key] == nil {
+                    groups[key] = Group(listing: Listing(app: app, source: source),
+                                        versions: [], sources: [source])
                     order.append(key)
                 }
-                byBundle[key] = listing
+                guard var group = groups[key] else { continue }
+                if !group.sources.contains(where: { $0.id == source.id }) {
+                    group.sources.append(source)
+                }
+                group.versions.append(contentsOf: app.releases)
+                // The entry shown is whichever source has the newest release.
+                let current = group.listing.app.latest?.dateValue ?? .distantPast
+                if (app.latest?.dateValue ?? .distantPast) > current {
+                    group.listing = Listing(app: app, source: source)
+                }
+                groups[key] = group
+                perSource[loaded.id, default: []].append(key)
             }
         }
-        let rebuilt = order.compactMap { byBundle[$0] }
+
+        var merged: [String: MergedApp] = [:]
+        for (key, group) in groups {
+            // One release per version, newest first; a build two sources both
+            // carry is listed once, under the first source that has it.
+            var seen = Set<String>()
+            var versions: [(version: AltVersion, source: AltSource)] = []
+            let sorted = group.versions.sorted { lhs, rhs in
+                let left = lhs.dateValue ?? .distantPast
+                let right = rhs.dateValue ?? .distantPast
+                if left != right { return left > right }
+                return (lhs.version ?? "").compare(rhs.version ?? "", options: .numeric) == .orderedDescending
+            }
+            for release in sorted {
+                let tag = release.version ?? release.id
+                guard seen.insert(tag).inserted else { continue }
+                let owner = group.sources.first { source in
+                    source.installableApps.contains { $0.releases.contains { $0.id == release.id } }
+                } ?? group.listing.source
+                versions.append((release, owner))
+            }
+            let app = group.listing.app
+            merged[key] = MergedApp(key: key,
+                                    name: app.name,
+                                    developer: app.developerName,
+                                    subtitle: app.subtitle,
+                                    iconURL: app.iconURL,
+                                    categoryID: app.category ?? "",
+                                    versions: versions)
+        }
+
+        let rebuilt = order.compactMap { merged[$0] }
         if rebuilt.map(\.id) != catalog.map(\.id) { catalog = rebuilt }
-        let counts = grouped.mapValues(\.count)
-        if counts != bySource.mapValues(\.count) { bySource = grouped }
+
+        var grouped: [String: [MergedApp]] = [:]
+        for (sourceID, keys) in perSource {
+            grouped[sourceID] = keys.compactMap { merged[$0] }
+        }
+        if grouped.mapValues(\.count) != bySource.mapValues(\.count) { bySource = grouped }
     }
 
     /// The categories the sources actually use, in the catalogue's order.
     private var presentCategories: [MarketCategory] {
-        let used = Set(catalog.map { MarketCategory.of($0.app.category) })
+        let used = Set(catalog.map(\.category))
         return MarketCategory.all.filter { used.contains($0) }
     }
 
@@ -405,32 +553,60 @@ struct MarketplaceView: View {
         return out
     }
 
-    private var visible: [Listing] {
+    /// What the current view shows: filtered by the search field, ordered by
+    /// `sort`.
+    private var visible: [MergedApp] {
         var list = catalog
         switch filter ?? .all {
         case .all:
             break
         case .featured:
-            list = list.filter { featuredIDs.contains($0.app.bundleIdentifier ?? "") }
+            list = list.filter { featuredIDs.contains($0.key) }
         case .category(let id):
-            list = list.filter { MarketCategory.of($0.app.category).id == id }
+            list = list.filter { $0.category.id == id }
         case .source(let id):
             // Not the de-duplicated list: this view is this source's shelf.
             list = bySource[id] ?? []
         }
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return list }
-        return list.filter {
-            $0.app.name.localizedCaseInsensitiveContains(trimmed)
-                || ($0.app.developerName ?? "").localizedCaseInsensitiveContains(trimmed)
-                || ($0.app.bundleIdentifier ?? "").localizedCaseInsensitiveContains(trimmed)
-                || ($0.app.subtitle ?? "").localizedCaseInsensitiveContains(trimmed)
+        if !trimmed.isEmpty {
+            list = list.filter {
+                $0.name.localizedCaseInsensitiveContains(trimmed)
+                    || ($0.developer ?? "").localizedCaseInsensitiveContains(trimmed)
+                    || ($0.subtitle ?? "").localizedCaseInsensitiveContains(trimmed)
+                    || $0.key.localizedCaseInsensitiveContains(trimmed)
+            }
+        }
+        return sorted(list)
+    }
+
+    /// "1.2.3 · 3 Feb 2026", as the version menus show a release.
+    private func versionLabel(_ version: AltVersion) -> String {
+        var parts = [version.version ?? L("unknown")]
+        if let date = version.dateValue {
+            parts.append(date.formatted(date: .abbreviated, time: .omitted))
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    private func sorted(_ list: [MergedApp]) -> [MergedApp] {
+        switch sort {
+        case .name:
+            return list.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        case .newest:
+            return list.sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
+        case .oldest:
+            return list.sorted { ($0.date ?? .distantFuture) < ($1.date ?? .distantFuture) }
+        case .size:
+            // Largest first: the size worth knowing about is the big one.
+            return list.sorted { ($0.size ?? 0) > ($1.size ?? 0) }
         }
     }
 
-    /// Installs the newest release of a listing, without opening its page first.
-    private func install(_ listing: Listing) {
-        guard let url = listing.app.latest?.url else { return }
+    /// Installs the chosen release of an app (or the newest) without opening its
+    /// page first.
+    private func install(_ app: MergedApp, version: AltVersion? = nil) {
+        guard let picked = app.pick(version), let url = picked.version.url else { return }
         engine.installLinkedIPA(url)
     }
 }
@@ -439,13 +615,13 @@ struct MarketplaceView: View {
 /// version on the right. Deliberately small — the marketplace is for finding
 /// and installing, and the app's own page has the rest.
 private struct ListingRow: View {
-    let listing: MarketplaceView.Listing
+    let app: MarketplaceView.MergedApp
 
     var body: some View {
         HStack(spacing: 12) {
-            SourceIcon(url: listing.app.icon, side: 44, fallback: "app.fill", corner: 10)
+            SourceIcon(url: app.icon, side: 44, fallback: "app.fill", corner: 10)
             VStack(alignment: .leading, spacing: 2) {
-                Text(listing.app.name)
+                Text(app.name)
                     .font(.subheadline.weight(.semibold))
                     .lineLimit(1)
                 Text(subtitle)
@@ -454,10 +630,19 @@ private struct ListingRow: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 6)
-            if let version = listing.app.latest?.version {
-                Text(version)
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(app.latest?.version ?? "")
                     .font(.caption2.monospaced())
                     .foregroundStyle(.secondary)
+                if app.versions.count > 1 {
+                    Text(L("%ld versions", app.versions.count))
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                } else if let size = app.latest?.sizeText {
+                    Text(size)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
             }
         }
         .padding(.vertical, 8)
@@ -469,13 +654,12 @@ private struct ListingRow: View {
 
     /// "Developer · Category", with whatever of the two the source gave.
     private var subtitle: String {
-        let developer = listing.app.developerName
-        let category = MarketCategory.of(listing.app.category).title
-        switch (developer?.isEmpty == false, category.isEmpty) {
-        case (true, false):  return "\(developer!) · \(category)"
-        case (true, true):   return developer!
+        let category = app.category.title
+        switch (app.developer?.isEmpty == false, category.isEmpty) {
+        case (true, false):  return "\(app.developer!) · \(category)"
+        case (true, true):   return app.developer!
         case (false, false): return category
-        default:             return listing.source.name
+        default:             return app.versions.first?.source.name ?? ""
         }
     }
 }

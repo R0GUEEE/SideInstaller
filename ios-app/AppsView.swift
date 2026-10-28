@@ -991,7 +991,7 @@ struct AppsView: View {
             Button {
                 manager.refresh(job)
             } label: {
-                Label(L("Refresh"), systemImage: "arrow.clockwise")
+                Label(L("Refresh (same team)"), systemImage: "arrow.clockwise")
             }
             // The same job, without the "same team" guard: for an app signed by
             // a wildcard certificate or someone else's account.
@@ -1109,6 +1109,22 @@ struct AppsView: View {
                     expiryLabel(profile, urgency: urgency)
                 }
                 Spacer(minLength: 8)
+                // The action most people come here for, one tap away: every app
+                // can hand its seven days to this Apple ID, whatever signed it.
+                if let job = manager.refreshable.first(where: { $0.bundleID == status.app.bundleID }) {
+                    Button {
+                        manager.resign(job)
+                    } label: {
+                        Text(L("Re-sign"))
+                            .font(.caption.weight(.semibold))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(Capsule().fill(Theme.accent2.opacity(0.18)))
+                            .foregroundStyle(Theme.accent2)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(manager.isRefreshing || engine.isRunning)
+                }
                 Menu {
                     appMenu(status)
                 } label: {

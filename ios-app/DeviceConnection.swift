@@ -833,15 +833,14 @@ final class DeviceConnection {
         guard let control else { throw fail("process control was null") }
         defer { process_control_free(control) }
 
-        let variables = (environment.map { "\($0.key)=\($0.value)" } + ["\0"]).map { $0 }
-        let pointers = variables.compactMap { $0 == "\0" ? nil : strdup($0) }
-        defer { pointers.forEach { free($0) } }
-        var buffer = pointers + [nil]
+        let variables = environment.map { "\($0.key)=\($0.value)" }
+        let pointers: [UnsafePointer<CChar>?] = variables.map { strdup($0) } + [nil]
+        defer { pointers.forEach { $0.map { free(UnsafeMutablePointer(mutating: $0)) } } }
 
         var pid: UInt64 = 0
-        let error = buffer.withUnsafeMutableBufferPointer { buffer -> UnsafeMutablePointer<IdeviceFfiError>? in
+        let error = pointers.withUnsafeBufferPointer { buffer -> UnsafeMutablePointer<IdeviceFfiError>? in
             bundleID.withCString { name in
-                process_control_launch_app(control, name, buffer.baseAddress, UInt(pointers.count),
+                process_control_launch_app(control, name, buffer.baseAddress, UInt(variables.count),
                                            nil, 0, true, true, &pid)
             }
         }
@@ -927,12 +926,11 @@ final class DeviceConnection {
     /// `send_command` does: the name verbatim, each argument hex-encoded.
     func sendDebugCommand(_ proxy: OpaquePointer, _ name: String,
                           arguments: [String] = []) throws -> String {
-        let pointers = arguments.compactMap { strdup($0) }
-        defer { pointers.forEach { free($0) } }
-        var buffer = pointers + [nil]
-        let command: OpaquePointer? = buffer.withUnsafeMutableBufferPointer { buffer in
+        let pointers: [UnsafePointer<CChar>?] = arguments.map { strdup($0) } + [nil]
+        defer { pointers.forEach { $0.map { free(UnsafeMutablePointer(mutating: $0)) } } }
+        let command = pointers.withUnsafeBufferPointer { buffer in
             name.withCString { namePointer in
-                debugserver_command_new(namePointer, buffer.baseAddress, UInt(pointers.count))
+                debugserver_command_new(namePointer, buffer.baseAddress, UInt(arguments.count))
             }
         }
         guard let command else { throw fail("couldn't build the \(name) command") }
