@@ -4,6 +4,19 @@ All notable changes to SideInstaller are documented here.
 
 ## Unreleased
 
+### Added
+- **Any repository format.** `SourceParser` reads AltStore / SideStore / AltStore PAL / SpotC,
+  GBox, Scarlet (both the store shape and its category map), and bare E-Sign / Feather-style
+  arrays, with aliases for the fields they name differently (`bundleID`, `down`, `icon`, `dev`,
+  `sourceImage`) and sizes written as text (`"12.4 MB"`). A source's apps no longer depend on it
+  being AltStore-shaped.
+
+### Changed
+- **Source scans are cached, so opening the app doesn't refresh anything.** Each source's parsed
+  rows are written to a small index file; the app reads those on launch (no network, no parsing)
+  and only refreshes a source that is missing or over six hours old. A refresh is conditional —
+  `If-None-Match` — so an unchanged repository costs a 304 with no body and no re-parse.
+
 ### Fixed
 - **Sources whose apps disappeared now list them.** A source is read field by field instead of
   through one typed schema: the v1 sources (CyPwn and friends) keep their only release at the app's

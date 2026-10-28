@@ -1431,3 +1431,25 @@ Two features added on top of the install pipeline: browsing AltStore sources, an
   GitHub's runners, so it's skipped there and named as skipped — the three sources that do load are
   enough to catch a regression, and the CyPwn numbers were checked by hand (209/209).
 
+### One parser for every repository format, and an index cache
+
+- **Formats in the wild**, all now handled by `SourceParser`:
+  - AltStore / SideStore / PAL / SpotC — `{ name, identifier, apps: [ … ] }` with a `versions` array.
+  - GBox — same `apps` array, but `sourceName` / `sourceImage` for the metadata, and apps that carry
+    no bundle ID at all (the row is keyed by `source#name` instead).
+  - Scarlet — either the store shape *or* a category map: top-level keys are categories whose values
+    are app arrays, with `down` for the download, `bundleID`, `icon`, `dev`, and a `META` block.
+  - E-Sign / Feather / hand-rolled — a bare array of app objects, `url` or `link` for the download.
+- **Why a parser and not a decoder:** the previous `JSONDecoder` model required one schema. Real
+  documents disagree on types as well as names, and a single mismatch emptied the whole source.
+  `SourceParser` reads JSON into Foundation objects and coerces each field, so a repository only has
+  to *resemble* the format to be usable.
+- **The cache is the fix for launch time.** `SourceIndex` holds a source's rows, its ETag and when
+  it was fetched, in `Caches/SourceIndex/<hash>.json`. Launch reads those (a few hundred KB at
+  worst) and merges; nothing is downloaded or parsed. `refreshAll(force: false)` only touches
+  sources with no index or an index older than six hours, and each refresh sends `If-None-Match`, so
+  an unchanged source answers 304 and its rows are kept as they are.
+- **`source-parser` CI** decodes live documents (AltStore, AppTesters, GBox, SpotC, Quark) *and*
+  vendored samples of the shapes no live fetch guarantees (Scarlet's category map, GBox metadata, an
+  E-Sign array), failing if any app comes back without a release.
+
