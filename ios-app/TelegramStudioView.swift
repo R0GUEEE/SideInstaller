@@ -75,7 +75,7 @@ struct TelegramStudioView: View {
                          ? L("API credentials saved")
                          : L("No API credentials"))
                         .font(.caption)
-                        .foregroundStyle(credentials.isConfigured ? .green : .tertiary)
+                        .foregroundStyle(AnyShapeStyle(credentials.isConfigured ? Color.green : Color.secondary))
                 }
                 Text(L("SideInstaller reads channels through Telegram's public previews — no account, no phone number, no session on this iPhone. A channel that has previews switched off can't be read this way, and files always download inside Telegram."))
                     .font(.caption)
