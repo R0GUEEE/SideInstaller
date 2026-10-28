@@ -115,6 +115,11 @@ struct RootView: View {
         }
         // A certificate a link brought is checked and imported by the same
         // manager as the Certificates page.
+        // An .ipa opened from another app (share sheet, "Open with") imports,
+        // and the Install tab is where it's ready to install.
+        .onChange(of: engine.installMenuRevision) { _, _ in
+            page = .install
+        }
         // A search sent from My Apps lands on the marketplace.
         .onChange(of: MarketplaceRouter.shared.pendingSearch) { _, search in
             if search != nil { page = .marketplace }

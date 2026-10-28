@@ -722,6 +722,7 @@ final class Engine: ObservableObject {
                 cacheInstalledIPA()
                 try await writePairing(accountConfig: accountConfig, prepared: prepared)
                 finishSuccess()
+                Haptics.success()
                 outcome = .installed
             } catch is CancellationError {
                 log("Install cancelled.")
@@ -735,6 +736,7 @@ final class Engine: ObservableObject {
                 lastError = msg
                 log("⛔️ Stopped: \(msg)")
                 failActiveStep(to: .failed)
+                Haptics.warning()
                 outcome = .stopped
             }
             stopBackgroundWork()

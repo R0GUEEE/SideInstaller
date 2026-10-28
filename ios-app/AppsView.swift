@@ -814,6 +814,10 @@ struct AppsView: View {
     /// The configured sources, searched when an app might have an update.
     @ObservedObject var sources: SourceStore
     @State private var pendingUninstall: SideloadedAppStatus?
+    /// The search field's text: name, bundle ID or App ID.
+    @State private var search = ""
+    /// How the two sections order their rows.
+    @State private var sort: Sort = .expiry
     /// The app whose Info sheet is up.
     @State private var infoTarget: SideloadedAppStatus?
     /// Newest release per bundle ID across the sources, built once.
@@ -851,7 +855,21 @@ struct AppsView: View {
             .animation(.smooth(duration: 0.35), value: manager.refreshable)
         }
         .background(AppBackground())
-        .toolbar { settingsToolbarItem(isPresented: $showSettings) }
+        .searchable(text: $search, prompt: Text(L("Search installed apps")))
+        .toolbar {
+            settingsToolbarItem(isPresented: $showSettings)
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Picker(L("Sort by"), selection: $sort) {
+                        ForEach(Sort.allCases) { order in
+                            Text(order.title).tag(order)
+                        }
+                    }
+                } label: {
+                    Image(systemName: "arrow.up.arrow.down")
+                }
+            }
+        }
         .sheet(isPresented: $showSettings) { SettingsView() }
         .sheet(item: $infoTarget) { status in
             AppInfoSheet(status: status, manager: manager)
@@ -1099,6 +1117,28 @@ struct AppsView: View {
 
     // MARK: App list
 
+    /// The orders the list can be read in.
+    enum Sort: String, CaseIterable, Identifiable {
+        case expiry, name
+        var id: String { rawValue }
+        var title: String { self == .expiry ? L("Expiry") : L("Name") }
+    }
+
+    /// What the sections show: the entries, filtered by the search field and
+    /// ordered by `sort`.
+    private var filtered: [SideloadedAppStatus] {
+        let trimmed = search.trimmingCharacters(in: .whitespacesAndNewlines)
+        let base = trimmed.isEmpty ? manager.entries : manager.entries.filter {
+            $0.app.name.localizedCaseInsensitiveContains(trimmed)
+                || $0.app.bundleID.localizedCaseInsensitiveContains(trimmed)
+                || ($0.app.applicationIdentifier ?? "").localizedCaseInsensitiveContains(trimmed)
+        }
+        switch sort {
+        case .expiry: return base
+        case .name:   return base.sorted { $0.app.name.localizedCaseInsensitiveCompare($1.app.name) == .orderedAscending }
+        }
+    }
+
     /// One heading's worth of apps.
     struct AppSection: Identifiable {
         let kind: SideloadedApp.Kind
@@ -1109,7 +1149,7 @@ struct AppsView: View {
     /// TestFlight first, then sideloaded; an empty group is left out.
     private var sections: [AppSection] {
         [SideloadedApp.Kind.testFlight, .sideloaded].compactMap { kind in
-            let apps = manager.entries.filter { $0.app.kind == kind }
+            let apps = filtered.filter { $0.app.kind == kind }
             return apps.isEmpty ? nil : AppSection(kind: kind, apps: apps)
         }
     }
@@ -1385,6 +1425,7 @@ struct AppsView: View {
     }
 
     private func launch(_ status: SideloadedAppStatus) {
+        Haptics.tap()
         Task {
             do {
                 try await engine.launchApp(bundleID: status.app.bundleID, name: status.app.name)
@@ -1397,6 +1438,7 @@ struct AppsView: View {
 
     private func uninstall(_ status: SideloadedAppStatus) {
         pendingUninstall = nil
+        Haptics.destructive()
         Task {
             do {
                 try await engine.uninstallApp(bundleID: status.app.bundleID,
@@ -1600,7 +1642,18 @@ struct AppInfoSheet: View {
     private var identityCard: some View {
         PanelCard {
             VStack(alignment: .leading, spacing: 10) {
-                row(L("Bundle ID"), status.app.bundleID, mono: true)
+                HStack {
+                    row(L("Bundle ID"), status.app.bundleID, mono: true)
+                    Button {
+                        UIPasteboard.general.string = status.app.bundleID
+                        Haptics.success()
+                    } label: {
+                        Image(systemName: "doc.on.doc")
+                            .font(.footnote)
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel(L("Copy the bundle ID"))
+                }
                 if let appID = status.app.applicationIdentifier {
                     row(L("App ID"), appID, mono: true)
                 }
@@ -1611,6 +1664,26 @@ struct AppInfoSheet: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
+                }
+                Divider().opacity(0.15)
+                HStack(spacing: 10) {
+                    Button {
+                        UIPasteboard.general.string = summaryText
+                        Haptics.success()
+                    } label: {
+                        Label(L("Copy details"), systemImage: "doc.on.doc")
+                            .font(.footnote.weight(.semibold))
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    Button {
+                        shareSummary()
+                    } label: {
+                        Label(L("Share"), systemImage: "square.and.arrow.up")
+                            .font(.footnote.weight(.semibold))
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
                 }
             }
         }
@@ -1685,6 +1758,41 @@ struct AppInfoSheet: View {
                 }
             }
         }
+    }
+
+    /// The app's facts as text: what someone pasting a problem report needs.
+    private var summaryText: String {
+        var lines = [
+            "\(status.app.name) — \(status.app.kind.title)",
+            "Bundle ID: \(status.app.bundleID)",
+        ]
+        if let appID = status.app.applicationIdentifier { lines.append("App ID: \(appID)") }
+        if let version = status.app.version { lines.append("Version: \(version)") }
+        if let profile = status.current {
+            lines.append("Signed by: \(profile.teamName.isEmpty ? "unknown" : profile.teamName)")
+            lines.append("Expires: \(ExpiryUrgency.text(for: profile))")
+            if let date = profile.expirationDate {
+                lines.append("Expiry date: \(date.formatted(date: .abbreviated, time: .omitted))")
+            }
+        }
+        if let cache = IPACache.cached(for: status.app.bundleID) {
+            lines.append("Stored .ipa: \(cache.sizeText), kept \(cache.savedAt.formatted(date: .abbreviated, time: .omitted))")
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    private func shareSummary() {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(status.app.name)-info.txt")
+        try? summaryText.write(to: url, atomically: true, encoding: .utf8)
+        guard let scene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .first(where: { $0.activationState == .foregroundActive }),
+              let root = scene.windows.first(where: { $0.isKeyWindow })?.rootViewController else { return }
+        var controller = root
+        while let presented = controller.presentedViewController { controller = presented }
+        controller.present(UIActivityViewController(activityItems: [url], applicationActivities: nil),
+                           animated: true)
     }
 
     private func row(_ label: String, _ value: String, mono: Bool = false) -> some View {
