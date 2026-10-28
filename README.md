@@ -98,11 +98,14 @@ where the IPA downloads from and hands it to `sideinstaller://install`, with a b
 doesn't open the app on its own.
 
 
-## Sources
+## Marketplace
 
-**Tools › Sources** browses AltStore-format sources — the same JSON catalogues AltStore and SideStore
-read — and installs any app they list. Add one by pasting its link (AltStore's own, `apps.altstore.io`,
-is there to start with), then pick an app, pick a release, and tap **Install with SideInstaller**.
+**Tools › Marketplace** browses every AltStore-format source you add — the same JSON catalogues
+AltStore and SideStore read. Its left menu lists the categories the sources file apps under
+(Utilities, Games, Developer, …) and each source, and the grid beside it shows what matches: search
+across every source, tap an app for its screenshots and every release, or install the newest one
+straight from the grid. Add a source by pasting its link (AltStore's own, `apps.altstore.io`, is
+there to start with).
 
 It's the same run as any other install: the `.ipa` is downloaded, signed with your Apple ID's
 certificate and put on the iPhone. Nothing else has to be installed first, and no computer is involved.
@@ -132,10 +135,19 @@ is prepared the same way each time.
 - **Identity** — a new bundle ID (installs alongside the original; extensions are re-prefixed to
   match, and the new ID is registered as its own App ID), display name, version and build number.
 - **Structure** — drop the app's extensions, or its Watch app.
-- **Tweaks** — add `.dylib` files, each copied into the app's `Frameworks` folder and loaded by
-  its main executable through an added `LC_LOAD_DYLIB` (`LC_LOAD_WEAK_DYLIB` with **Optional**
-  on). Tweaks have to be built for this iPhone — arm64 or arm64e, iOS 17.4 or later — and
-  injecting one needs room in the Mach-O header, which Xcode builds have.
+- **Info.plist and entitlements** — any top-level key, as text, switch, number or list, and any
+  entitlement written into the app's archived entitlements file (the profile your Apple ID issues
+  still decides what's actually granted).
+- **Extensions** — switch off individual extensions, or remove them all, and drop the Watch app.
+- **Tweaks** — add `.dylib` files or `.deb` packages. A package is unpacked and the libraries it
+  installs are taken; each library is copied into the app's `Frameworks` folder and loaded by its
+  main executable through an added `LC_LOAD_DYLIB` (`LC_LOAD_WEAK_DYLIB` with **Optional** on).
+  Rootful and rootless packages both work. Tweaks have to be built for this iPhone — arm64, iOS
+  17.4 or later — and injecting one needs room in the Mach-O header, which Xcode builds have.
+- **Injectors** — ElleKit, CydiaSubstrate, libhooker and Substitute are added from a copy you have
+  (SideInstaller can't redistribute them). A package's dependencies pick which one is loaded, and
+  it's injected before the tweak.
+- **Backup** — the whole configuration exports to JSON and imports again.
 
 The archive is rewritten in place and only the files that change are re-encoded, so a 100 MB
 `.ipa` costs a few megabytes of work. Applying the same configuration again is a no-op: the

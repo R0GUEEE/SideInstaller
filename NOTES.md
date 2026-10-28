@@ -1202,3 +1202,30 @@ Two features added on top of the install pipeline: browsing AltStore sources, an
   Watch app is gone, `LC_LOAD_DYLIB` names the injected path, an untouched resource is
   byte-identical, and a second pass injects nothing.
 
+### Debs, injectors, the app manager and the marketplace
+
+- **`DebArchive`** parses the three layers by hand: ar (60-byte headers, even-offset padding), tar
+  (octal sizes, GNU long names, pax headers skipped) and gzip (header flags, then a raw DEFLATE
+  stream — `compression_decode_buffer` with `COMPRESSION_ZLIB`, growing the output buffer because
+  gzip doesn't record the size). xz and zstd debs are refused with a message rather than guessed
+  at. From a package it takes every `.dylib` and every `.framework` binary, which covers both
+  `/Library/MobileSubstrate/DynamicLibraries` and `/var/jb/…` rootless layouts.
+- **Injectors** are user-supplied copies registered per framework kind. A package's `Depends`
+  maps to a kind (`mobilesubstrate` → substrate, `ellekit`, `libhooker`, `substitute`) and that
+  library is injected first; `AppConfigStore.missingInjectors` drives the warning shown before the
+  install rather than after a crash. Distribution of the frameworks themselves is the user's
+  business, not the app's.
+- **`IPAPatch`** grew a plist edit list (typed values, only written when different), an
+  entitlements file writer, per-extension removal and the multi-library injection above. Every
+  library's architecture is checked with the shared `MachO` reader first, so an armv7 or x86 slice
+  is reported instead of injected.
+- **App manager**: `DeviceConnection.uninstall` calls `installation_proxy_uninstall` over the same
+  RSD link the install uses; `Engine.uninstallApp` wraps it with the pairing/connection dance.
+  Re-sign reuses the refresh job for a single app, and *Update to x.y* looks the bundle ID up in
+  every configured source and compares versions numerically.
+- **Marketplace**: `MarketplaceView` is a `NavigationSplitView` — a sidebar of categories and
+  sources, a lazy grid of cards. The catalogue is de-duplicated by bundle ID (newest release wins)
+  and rebuilt only when a source's app count or id changes, for the same reason the old list
+  froze. Categories come from the source's own `category` strings, matched loosely and falling
+  back to "Other", so an unlisted value never hides an app.
+

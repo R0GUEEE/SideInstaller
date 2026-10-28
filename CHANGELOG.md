@@ -4,6 +4,26 @@ All notable changes to SideInstaller are documented here.
 
 ## Unreleased
 
+### Added
+- **Tweaks can be `.deb` packages.** A package is unpacked (ar → gzip → tar), its `DEBIAN/control`
+  read for its name, version and dependencies, and only the libraries it installs are taken — a
+  rootful or rootless package works, because the layout inside doesn't matter. Filters and
+  preference bundles are ignored.
+- **Injector frameworks.** ElleKit, CydiaSubstrate, libhooker and Substitute are added from a copy
+  the user has (they can't be redistributed here), under App configuration › Injectors. A
+  package's `Depends` decides which one is loaded, and it's injected ahead of the tweak. A tweak
+  whose injector is missing says so before the install runs.
+- **A full IPA configuration toolkit** in Install › Advanced: identity fields filled in from the
+  imported build, arbitrary `Info.plist` keys (text, switch, number, list), entitlements written
+  into the app's archived entitlements file, per-extension switches plus remove-all, Watch app
+  removal, tweaks, and export/import of the whole configuration as JSON.
+- **An app manager** on Tools › Sideloaded apps: per-app **Re-sign** (restarts its seven days),
+  **Update to <version>** when a configured source carries a newer release, and **Uninstall**
+  through `installation_proxy`.
+- **A marketplace** on Tools › Marketplace: a left menu of categories (the same ones an AltStore
+  source files apps under) and sources, with an App Store-style grid, search across every source,
+  one-tap install, and each app's own page behind it.
+
 ### Changed
 - **A big source no longer freezes the browser.** The app list is built lazily, so only the rows
   on screen exist; each source's apps are sorted once when it loads instead of on every redraw;
