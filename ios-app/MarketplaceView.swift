@@ -109,18 +109,20 @@ struct MarketplaceView: View {
     @State private var sort: SortOrder = .name
     @State private var selected: MarketEntry?
     @State private var showAdd = false
+    @State private var showManageSources = false
     @State private var showSettings = false
 
     var body: some View {
         NavigationStack {
-            HStack(spacing: 0) {
-                rail
-                Rectangle()
-                    .fill(Color(.separator))
-                    .frame(width: 1)
+            VStack(spacing: 0) {
+                // Everything the rail used to hold, along the top: a sideways
+                // list is where a phone's thumb already is, and it leaves the
+                // full width for the apps underneath.
+                topBar
                 content
             }
             .background(AppBackground())
+            .safeAreaInset(edge: .bottom, spacing: 0) { filterBar }
             .toolbar { settingsToolbarItem(isPresented: $showSettings) }
             .sheet(item: $selected) { app in
                 NavigationStack {
@@ -133,6 +135,7 @@ struct MarketplaceView: View {
                 }
             }
             .sheet(isPresented: $showAdd) { AddSourceSheet(store: store) }
+            .sheet(isPresented: $showManageSources) { SourceManagerView(store: store) }
             .sheet(isPresented: $showSettings) { SettingsView() }
             .onAppear {
                 store.load()
@@ -150,91 +153,107 @@ struct MarketplaceView: View {
         }
     }
 
-    // MARK: The left menu
+    // MARK: The top of the screen
 
-    /// A rail rather than a `List`: a split view's selection doesn't push
-    /// anything at compact width, which is how this screen is almost always
-    /// seen, and rows that don't open are worse than no rows. Buttons work at
-    /// every width.
-    private var rail: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            LazyVStack(alignment: .leading, spacing: 4) {
-                Text(L("Browse"))
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.tertiary)
-                    .padding(.horizontal, 10)
-                    .padding(.top, 8)
+    /// Heading, search, and the two menus that replace the rail: where to look
+    /// (all, featured, a category, a source) and how to order what's there.
+    private var topBar: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(L("Marketplace"))
+                    .font(.title2.weight(.bold))
+                Text(visibleApps.count == 1 ? L("1 app") : L("%ld apps", visibleApps.count))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+            }
 
-                railButton(.all, title: L("All apps"), icon: "square.grid.2x2.fill",
-                           count: store.entries.count)
-                if featuredCount > 0 {
-                    railButton(.featured, title: L("Featured"), icon: "star.fill",
-                               count: featuredCount)
-                }
-
-                let categories = MarketCategory.all.filter { (categoryCounts[$0.id] ?? 0) > 0 }
-                if !categories.isEmpty {
-                    Text(L("Categories"))
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.tertiary)
-                        .padding(.horizontal, 10)
-                        .padding(.top, 12)
-                    ForEach(categories) { category in
-                        railButton(.category(category.id), title: category.title, icon: category.icon,
-                                   count: categoryCounts[category.id] ?? 0)
+            HStack(spacing: 8) {
+                HStack(spacing: 6) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    TextField(L("Search every source"), text: $query)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .font(.subheadline)
+                    if !query.isEmpty {
+                        Button { query = "" } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.tertiary)
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+                .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(.white.opacity(0.06)))
 
-                Text(L("Sources"))
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.tertiary)
-                    .padding(.horizontal, 10)
-                    .padding(.top, 12)
-                ForEach(store.sources) { loaded in
-                    railButton(.source(loaded.id), title: loaded.name, icon: "shippingbox.fill",
-                               count: store.count(for: loaded.id),
-                               failed: loaded.error != nil)
-                }
-                Button {
-                    showAdd = true
+                Menu {
+                    Picker(L("Sort by"), selection: $sort) {
+                        ForEach(SortOrder.allCases) { order in
+                            Label(order.title, systemImage: order.icon).tag(order)
+                        }
+                    }
                 } label: {
-                    VStack(spacing: 4) {
-                        Image(systemName: "plus.circle.fill")
-                            .font(.system(size: 18, weight: .semibold))
-                        Text(L("Add source"))
-                            .font(.caption2)
-                            .lineLimit(1)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 9)
-                    .foregroundStyle(Theme.accent2)
+                    Image(systemName: "arrow.up.arrow.down")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(width: 38, height: 38)
+                        .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(.white.opacity(0.06)))
+                        .foregroundStyle(Theme.accent2)
                 }
                 .buttonStyle(.plain)
-                .padding(.horizontal, 6)
-                .padding(.top, 6)
+                .accessibilityLabel(L("Sort by %@", sort.title))
             }
-            .padding(.vertical, 8)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    sourceChip(.all, title: L("All apps"), icon: "square.grid.2x2.fill",
+                               count: store.entries.count)
+                    if featuredCount > 0 {
+                        sourceChip(.featured, title: L("Featured"), icon: "star.fill",
+                                   count: featuredCount)
+                    }
+                    ForEach(store.sources) { loaded in
+                        sourceChip(.source(loaded.id), title: loaded.name,
+                                   icon: "shippingbox.fill", count: store.count(for: loaded.id),
+                                   failed: loaded.error != nil)
+                    }
+                    Button {
+                        showManageSources = true
+                    } label: {
+                        Label(L("Sources"), systemImage: "slider.horizontal.3")
+                            .font(.caption.weight(.semibold))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 7)
+                            .background(Capsule().fill(.white.opacity(0.06)))
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.vertical, 2)
+            }
         }
-        .frame(width: 76)
-        // The rail is its own column: on iPad's wider layout the same width
-        // keeps the grid roomy.
-        .background(.black.opacity(0.12))
+        .padding(.horizontal, 16)
+        .padding(.top, 4)
+        .padding(.bottom, 8)
     }
 
-    private func railButton(_ value: Filter, title: String, icon: String, count: Int,
+    /// One chip in the source row: all, featured, or a source.
+    private func sourceChip(_ value: Filter, title: String, icon: String, count: Int,
                             failed: Bool = false) -> some View {
         let selected = (filter ?? .all) == value
         return Button {
             filter = value
         } label: {
-            VStack(spacing: 4) {
+            HStack(spacing: 6) {
                 Image(systemName: icon)
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(.caption2.weight(.semibold))
                 Text(title)
-                    .font(.caption2)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.center)
-                    .minimumScaleFactor(0.8)
+                    .font(.caption.weight(.semibold))
+                    .lineLimit(1)
                 if failed {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .font(.caption2)
@@ -242,20 +261,65 @@ struct MarketplaceView: View {
                 } else if count > 0 {
                     Text("\(count)")
                         .font(.caption2.monospacedDigit())
-                        .foregroundStyle(selected ? AnyShapeStyle(Color.white.opacity(0.8)) : AnyShapeStyle(.tertiary))
+                        .foregroundStyle(selected ? AnyShapeStyle(Color.white.opacity(0.8))
+                                                  : AnyShapeStyle(.tertiary))
                 }
             }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 8)
-            .padding(.horizontal, 4)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
             .foregroundStyle(selected ? AnyShapeStyle(.white) : AnyShapeStyle(.secondary))
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(selected ? AnyShapeStyle(Theme.brand) : AnyShapeStyle(Color.clear))
-            )
+            .background(Capsule().fill(selected ? AnyShapeStyle(Theme.brand)
+                                                : AnyShapeStyle(Color.white.opacity(0.06))))
         }
         .buttonStyle(.plain)
-        .padding(.horizontal, 6)
+    }
+
+    /// The categories, as a bar along the bottom: they're a secondary filter,
+    /// and a bar there keeps the top row to what changes most.
+    private var filterBar: some View {
+        let categories = MarketCategory.all.filter { (categoryCounts[$0.id] ?? 0) > 0 }
+        return Group {
+            if !categories.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        categoryChip(nil, title: L("Every category"), icon: "square.grid.2x2")
+                        ForEach(categories) { category in
+                            categoryChip(category, title: category.title, icon: category.icon)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                }
+                .background(.ultraThinMaterial)
+            }
+        }
+    }
+
+    private func categoryChip(_ category: MarketCategory?, title: String, icon: String) -> some View {
+        let active: Bool = {
+            guard let category else {
+                if case .category = filter ?? .all { return false }
+                return true
+            }
+            if case .category(let id) = filter ?? .all { return id == category.id }
+            return false
+        }()
+        return Button {
+            if let category {
+                filter = .category(category.id)
+            } else if case .category = filter ?? .all {
+                filter = .all
+            }
+        } label: {
+            Label(title, systemImage: icon)
+                .font(.caption.weight(.semibold))
+                .padding(.horizontal, 11)
+                .padding(.vertical, 6)
+                .foregroundStyle(active ? AnyShapeStyle(.white) : AnyShapeStyle(.secondary))
+                .background(Capsule().fill(active ? AnyShapeStyle(Theme.accent2.opacity(0.85))
+                                                  : AnyShapeStyle(Color.white.opacity(0.06))))
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: The grid
@@ -265,7 +329,6 @@ struct MarketplaceView: View {
             // Lazy: a source can list hundreds of apps, and only the visible
             // cards should exist.
             LazyVStack(alignment: .leading, spacing: 18) {
-                header
                 if visibleApps.isEmpty {
                     emptyState
                 } else {
@@ -337,35 +400,12 @@ struct MarketplaceView: View {
                 }
             }
             .padding(16)
+            // Room for the category bar pinned along the bottom.
+            .padding(.bottom, 48)
         }
-        .searchable(text: $query, prompt: Text(L("Search every source")))
         .refreshable { await store.refreshAll() }
-        .navigationTitle(title)
-        .navigationBarTitleDisplayMode(.inline)
     }
 
-    private var header: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(title)
-                .font(.title2.weight(.bold))
-            Text(visibleApps.count == 1 ? L("1 app") : L("%ld apps", visibleApps.count))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Spacer(minLength: 0)
-            Menu {
-                Picker(L("Sort by"), selection: $sort) {
-                    ForEach(SortOrder.allCases) { order in
-                        Label(order.title, systemImage: order.icon).tag(order)
-                    }
-                }
-            } label: {
-                Label(sort.title, systemImage: "arrow.up.arrow.down")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(Theme.accent2)
-            }
-        }
-        .padding(.bottom, 2)
-    }
 
     private var emptyState: some View {
         PanelCard {
@@ -415,14 +455,6 @@ struct MarketplaceView: View {
 
     // MARK: Data
 
-    private var title: String {
-        switch filter ?? .all {
-        case .all:                        return L("All apps")
-        case .featured:                   return L("Featured")
-        case .category(let id):           return MarketCategory.all.first { $0.id == id }?.title ?? L("Apps")
-        case .source(let id):             return store.sources.first { $0.id == id }?.name ?? L("Source")
-        }
-    }
 
     /// Rebuilds the memoised lists from the store. The store already merged the
     /// sources; this only counts and filters.
