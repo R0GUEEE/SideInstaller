@@ -258,21 +258,20 @@ enum IPAPatch {
         var out: [LibraryToInject] = []
         var injectorsAdded = Set<TweakInjectorKind>()
 
-        /// Loads the framework a package depends on, once, ahead of the tweak.
-        func loadInjector(_ kind: TweakInjectorKind, from injectors: [TweakInjector],
-                          added: inout Set<TweakInjectorKind>, outcome: inout Outcome,
-                          tweakName: String,
-                          add: (String, String, Data, Bool) -> Void) {
-            guard added.insert(kind).inserted else { return }
+        /// The framework a package depends on, loaded once, ahead of the tweak:
+        /// the library to inject, or the warning saying it isn't here.
+        func injectorLibrary(_ kind: TweakInjectorKind,
+                             added: inout Set<TweakInjectorKind>) -> (library: LibraryToInject?, warning: String?) {
+            guard added.insert(kind).inserted else { return (nil, nil) }
             guard let injector = injectors.first(where: { $0.kind == kind }),
                   let data = try? Data(contentsOf: URL(fileURLWithPath: injector.path),
                                        options: .uncached)
-            else {
-                outcome.warnings.append(L("%@ needs %@, which isn't added under Injectors",
-                                          tweakName, kind.title))
-                return
-            }
-            add(injector.kind.title, injector.fileName, data, false)
+            else { return (nil, kind.title) }
+            return (LibraryToInject(displayName: injector.kind.title,
+                                    fileName: injector.fileName,
+                                    loadPath: "@executable_path/Frameworks/\(injector.fileName)",
+                                    weak: false,
+                                    data: data), nil)
         }
 
         func add(_ name: String, _ fileName: String, _ data: Data, weak: Bool) {
@@ -303,8 +302,12 @@ enum IPAPatch {
                 // A hand-added library may still say which framework it needs,
                 // so its injector is loaded first like a package's.
                 if let kind = tweak.requiresInjector {
-                    loadInjector(kind, from: injectors, added: &injectorsAdded,
-                                 outcome: &outcome, tweakName: tweak.name, add: add)
+                    let injector = injectorLibrary(kind, added: &injectorsAdded)
+                    if let library = injector.library { out.append(library) }
+                    if injector.warning != nil {
+                        outcome.warnings.append(L("%@ needs %@, which isn't added under Injectors",
+                                                  tweak.name, kind.title))
+                    }
                 }
                 add(tweak.name, (tweak.path as NSString).lastPathComponent, data, weak: tweak.weak)
 
@@ -316,8 +319,12 @@ enum IPAPatch {
                 // The injector the package depends on comes first, or the tweak
                 // has nothing to hook with.
                 if let kind = package.requiredInjector {
-                    loadInjector(kind, from: injectors, added: &injectorsAdded,
-                                 outcome: &outcome, tweakName: tweak.name, add: add)
+                    let injector = injectorLibrary(kind, added: &injectorsAdded)
+                    if let library = injector.library { out.append(library) }
+                    if injector.warning != nil {
+                        outcome.warnings.append(L("%@ needs %@, which isn't added under Injectors",
+                                                  tweak.name, kind.title))
+                    }
                 }
                 guard !package.libraries.isEmpty else {
                     outcome.warnings.append(L("%@ carries no library to inject", tweak.name))
