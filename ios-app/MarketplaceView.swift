@@ -87,6 +87,14 @@ struct MarketplaceView: View {
         }
     }
 
+    /// What the right-hand side is showing.
+    enum Filter: Hashable {
+        case all
+        case featured
+        case category(String)
+        case source(String)
+    }
+
     @State private var filter: Filter? = .all
     @State private var query = ""
     /// What the list draws, rebuilt from the store's entries when they change.
