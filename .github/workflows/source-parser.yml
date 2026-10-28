@@ -36,6 +36,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          command -v curl >/dev/null || (apt-get update -qq && apt-get install -y -qq curl)
           install -d "$RUNNER_TEMP/src"
           for u in https://ipa.cypwn.xyz/cypwn.json https://repository.apptesters.org \
                    https://apps.altstore.io https://quarksources.github.io/altstore-complete.json; do
