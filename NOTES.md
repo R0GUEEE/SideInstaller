@@ -1347,3 +1347,19 @@ Two features added on top of the install pipeline: browsing AltStore sources, an
   store one at a time (each fetches and indexes, and the store must stay consistent); failures are
   reported per link rather than aborting the batch.
 
+### My Apps without a device read on open
+
+- `autoLoad` used to call `load(quiet:)` whenever the tunnel looked up, and that opened the link:
+  `ensurePairingConnection` → `tunnelUp` (which can start LocalDevVPN and wait) → `performConnect`.
+  On a screen you flip to just to check an expiry date, that's several seconds of "Reading the
+  device".
+- Now the inventory (`installation_proxy` plists + `misagent` profiles) is cached per UDID in
+  Caches, and the page rebuilds the list from it on first appear. The cache is written on every
+  successful read, so it's never more than one load behind.
+- An automatic re-read is allowed only when `engine.connection.isConnected` — i.e. the link from
+  another screen is already up, so it's a query over an open socket rather than a connection. Load
+  and pull-to-refresh remain the explicit path.
+- `CachedInventory` stores the app dictionaries as a binary plist inside the plist: they're
+  `[String: Any]` from `PropertyListSerialization` (device data), which `Codable` can't take
+  directly.
+

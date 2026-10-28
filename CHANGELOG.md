@@ -5,6 +5,13 @@ All notable changes to SideInstaller are documented here.
 ## Unreleased
 
 ### Changed
+- **My Apps opens instantly.** It used to connect to the device as soon as the tab appeared — open
+  LocalDevVPN, wait for the tunnel, walk a pairing handshake — before showing a single app. The
+  inventory is now kept per device, so the page draws the last list immediately and says how old it
+  is. A re-read happens on its own only when the link is already open; **Load** and pull-to-refresh
+  still do the full read.
+
+### Changed
 - **The marketplace's controls live in one filter box.** The top bar is three things: **All apps**,
   a **filter field**, and **Sources**. Typing in the field searches; its menu picks where to search
   — every source, one source by name, a category, or featured — and how to order the result. The
