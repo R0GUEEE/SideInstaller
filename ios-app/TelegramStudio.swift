@@ -47,6 +47,8 @@ final class TelegramStudio: ObservableObject {
     @Published private(set) var results: [Result] = []
     @Published private(set) var isScanning = false
     @Published private(set) var scanNote: String?
+    /// Exports imported from Telegram Desktop, mapped to the same results.
+    @Published private(set) var imports: [Result] = []
     /// Set after a scan produces a source file.
     @Published private(set) var generated: GeneratedSource?
 
@@ -146,9 +148,32 @@ final class TelegramStudio: ObservableObject {
             : L("Found %ld app(s); %ld channel(s) couldn't be read.", total, failed)
     }
 
-    /// Every scanned entry, as one list.
+    /// Every scanned or imported entry, as one list.
     var allEntries: [MarketEntry] {
-        results.flatMap(\.entries)
+        (results + imports).flatMap(\.entries)
+    }
+
+    /// Reads a Telegram Desktop export and adds its apps to the list.
+    @discardableResult
+    func importExport(_ json: URL) -> String? {
+        do {
+            let summary = try TelegramExport.read(json)
+            imports.removeAll { $0.id == summary.channel }
+            imports.append(Result(channel: summary.channel, entries: summary.entries,
+                                  error: nil, scanned: summary.messages))
+            let missing = summary.missingFiles
+            scanNote = missing == 0
+                ? L("Imported %ld app(s) from \"%@\".", summary.entries.count, summary.channel)
+                : L("Imported %ld app(s) from \"%@\"; %ld file(s) weren't in the export folder.",
+                    summary.entries.count, summary.channel, missing)
+            return nil
+        } catch {
+            return (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+        }
+    }
+
+    func removeImport(_ id: String) {
+        imports.removeAll { $0.id == id }
     }
 
     // MARK: - The generated source

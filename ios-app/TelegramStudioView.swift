@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 /// The Telegram screen: which channels to watch, a scan of what they carry, and
 /// the source file built from it.
@@ -11,11 +12,15 @@ import UIKit
 struct TelegramStudioView: View {
     @EnvironmentObject private var loc: Localizer
     @ObservedObject private var studio = TelegramStudio.shared
+    @ObservedObject private var credentials = TelegramCredentials.shared
     @Environment(\.dismiss) private var dismiss
 
     @State private var newChannel = ""
     @State private var addError: String?
     @State private var showAccountInfo = false
+    @State private var showCredentials = false
+    @State private var showExportPicker = false
+    @State private var importError: String?
 
     var body: some View {
         NavigationStack {
@@ -25,6 +30,7 @@ struct TelegramStudioView: View {
                     addCard
                     channelCard
                     scanCard
+                    exportCard
                     sourceCard
                 }
                 .padding(20)
@@ -39,6 +45,18 @@ struct TelegramStudioView: View {
                 }
             }
             .sheet(isPresented: $showAccountInfo) { accountExplanation }
+            .sheet(isPresented: $showCredentials) {
+                TelegramCredentialsView().environmentObject(loc)
+            }
+            .sheet(isPresented: $showExportPicker) {
+                FileImporterRepresentableView(allowedContentTypes: [.json]) { urls in
+                    guard let url = urls.first else { return }
+                    let scoped = url.startAccessingSecurityScopedResource()
+                    defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                    importError = studio.importExport(url)
+                }
+                .ignoresSafeArea()
+            }
         }
     }
 
@@ -53,17 +71,26 @@ struct TelegramStudioView: View {
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.secondary)
                     Spacer()
-                    Text(L("Not signed in"))
+                    Text(credentials.isConfigured
+                         ? L("API credentials saved")
+                         : L("No API credentials"))
                         .font(.caption)
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(credentials.isConfigured ? .green : .tertiary)
                 }
                 Text(L("SideInstaller reads channels through Telegram's public previews — no account, no phone number, no session on this iPhone. A channel that has previews switched off can't be read this way, and files always download inside Telegram."))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                Button(L("What signing in would take")) { showAccountInfo = true }
-                    .font(.footnote.weight(.semibold))
-                    .buttonStyle(.borderless)
+                HStack(spacing: 12) {
+                    Button(credentials.isConfigured
+                           ? L("API credentials")
+                           : L("Set up API credentials")) { showCredentials = true }
+                        .font(.footnote.weight(.semibold))
+                        .buttonStyle(.borderless)
+                    Button(L("What signing in would take")) { showAccountInfo = true }
+                        .font(.footnote.weight(.semibold))
+                        .buttonStyle(.borderless)
+                }
             }
         }
     }
@@ -241,6 +268,55 @@ struct TelegramStudioView: View {
         }
     }
 
+    // MARK: Export import
+
+    /// The offline path to a whole channel: Telegram Desktop's export has every
+    /// message and the files themselves.
+    private var exportCard: some View {
+        PanelCard {
+            VStack(alignment: .leading, spacing: 10) {
+                Label(L("Import a channel export"), systemImage: "tray.and.arrow.down")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Text(L("Telegram Desktop › open the channel › ⋮ › Export chat history › JSON. Pick its result.json here: every .ipa it lists is added, and files that came with the export install straight from disk — no account, and it works for channels whose previews are off."))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button {
+                    showExportPicker = true
+                } label: {
+                    Label(L("Choose result.json"), systemImage: "doc.badge.plus")
+                        .font(.footnote.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+
+                if let importError {
+                    Text(importError)
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+                ForEach(studio.imports) { imported in
+                    HStack(spacing: 8) {
+                        Text("@\(imported.channel)")
+                            .font(.caption.monospaced())
+                            .lineLimit(1)
+                        Spacer(minLength: 4)
+                        Text(L("%ld apps", imported.entries.count))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Button(role: .destructive) {
+                            studio.removeImport(imported.id)
+                        } label: {
+                            Image(systemName: "trash").font(.footnote)
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                }
+            }
+        }
+    }
+
     // MARK: Source
 
     private var sourceCard: some View {
@@ -320,6 +396,126 @@ private struct BulletLabelStyle: LabelStyle {
                 .font(.system(size: 4))
                 .foregroundStyle(.tertiary)
             configuration.title
+        }
+    }
+}
+
+// MARK: - API credentials
+
+/// Telegram's own per-app registration, laid out as the three steps it is.
+///
+/// The two values come from my.telegram.org/apps and are what any Telegram
+/// client needs before it can log in — this app's, or Telegram's own.
+struct TelegramCredentialsView: View {
+    @EnvironmentObject private var loc: Localizer
+    @ObservedObject private var credentials = TelegramCredentials.shared
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var apiID = ""
+    @State private var apiHash = ""
+    @State private var saved = false
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    PanelCard {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Label(L("1 · Register an application"), systemImage: "1.circle.fill")
+                                .font(.subheadline.weight(.semibold))
+                            Text(L("Open Telegram's developer page and sign in with your phone number. Create an app — the name and platform are yours to choose — and it shows an api_id (a number) and an api_hash (32 letters and digits)."))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Button {
+                                UIApplication.shared.open(TelegramCredentials.registrationURL)
+                            } label: {
+                                Label(L("Open my.telegram.org/apps"), systemImage: "safari")
+                                    .font(.footnote.weight(.semibold))
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                    }
+
+                    PanelCard {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Label(L("2 · Paste them here"), systemImage: "2.circle.fill")
+                                .font(.subheadline.weight(.semibold))
+                            TextField(L("api_id"), text: $apiID)
+                                .keyboardType(.numberPad)
+                                .font(.subheadline.monospaced())
+                                .fieldBackground()
+                            TextField(L("api_hash"), text: $apiHash)
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+                                .font(.subheadline.monospaced())
+                                .fieldBackground()
+                            if let error = credentials.lastError {
+                                Text(error)
+                                    .font(.caption)
+                                    .foregroundStyle(.orange)
+                            }
+                            if saved {
+                                Label(L("Saved to the Keychain on this iPhone."), systemImage: "checkmark.seal.fill")
+                                    .font(.caption)
+                                    .foregroundStyle(.green)
+                            }
+                            Button {
+                                saved = credentials.save(apiID: apiID, apiHash: apiHash)
+                            } label: {
+                                Label(L("Save credentials"), systemImage: "key.fill")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(PrimaryButtonStyle())
+                            .disabled(apiID.isEmpty || apiHash.isEmpty)
+                            if credentials.isConfigured {
+                                Button(role: .destructive) {
+                                    credentials.clear()
+                                    apiID = ""
+                                    apiHash = ""
+                                    saved = false
+                                } label: {
+                                    Text(L("Remove the saved credentials"))
+                                        .font(.footnote.weight(.semibold))
+                                        .frame(maxWidth: .infinity)
+                                }
+                                .buttonStyle(.bordered)
+                            }
+                        }
+                    }
+
+                    PanelCard {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Label(L("3 · The login itself"), systemImage: "3.circle.fill")
+                                .font(.subheadline.weight(.semibold))
+                            Text(L("Credentials are what a Telegram client needs to start; the login that follows is an MTProto session — a code sent to your other devices, a 2FA password if you have one, and a session key kept here. That client isn't in this build yet, so the credentials are stored and nothing else uses them."))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Text(L("Until then the studio reads public previews, and a Telegram Desktop export imports a whole channel offline."))
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+                .padding(20)
+                .pageColumn()
+            }
+            .background(AppBackground())
+            .navigationTitle(L("Telegram API"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(L("Done")) { dismiss() }
+                }
+            }
+            .onAppear {
+                if let existing = credentials.credentials {
+                    apiID = String(existing.apiID)
+                    apiHash = existing.apiHash
+                }
+            }
         }
     }
 }
