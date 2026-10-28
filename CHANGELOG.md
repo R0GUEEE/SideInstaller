@@ -5,10 +5,10 @@ All notable changes to SideInstaller are documented here.
 ## Unreleased
 
 ### Changed
-- **The marketplace's controls moved to the top.** The left rail is gone: a search field, a sort
-  menu and a row of source chips run along the top, where a thumb already is and where they leave
-  the full width for apps. Categories became a bar pinned along the bottom — a secondary filter,
-  out of the way of the list.
+- **The marketplace's controls live in one filter box.** The top bar is three things: **All apps**,
+  a **filter field**, and **Sources**. Typing in the field searches; its menu picks where to search
+  — every source, one source by name, a category, or featured — and how to order the result. The
+  sideways list of repositories and the bottom category bar are gone.
 - **Sources have a manager of their own** (the *Sources* chip opens it): several links pasted at
   once or chosen from a text file, each source's app count, last fetch and any error, refresh one or
   all, remove one (with what it costs), and export the list for another device.
