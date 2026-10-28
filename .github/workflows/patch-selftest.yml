@@ -30,7 +30,8 @@ jobs:
       - name: Build the harness
         run: |
           swiftc -O ios-app/IPAPatch.swift ios-app/AppConfig.swift ios-app/DebArchive.swift \
-            ios-app/MachO.swift tools/patch-selftest/main.swift \
+            ios-app/InjectorCatalog.swift ios-app/MachO.swift \
+            tools/patch-selftest/main.swift \
             -o "$RUNNER_TEMP/patch-selftest"
 
       - name: Build a sample .ipa and a tweak
