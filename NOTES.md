@@ -1412,3 +1412,22 @@ Two features added on top of the install pipeline: browsing AltStore sources, an
 - Re-verify by re-running the probe script against `RepositoryDirectory.all` before any release
   that claims these work.
 
+### Why filtered sources were empty
+
+- CyPwn's document has **no `versions` array at all**: each app carries one release at the top
+  level (`version`, `downloadURL`, `size`, `versionDate`) — the v1 shape. That path existed, but it
+  ran *after* a typed `JSONDecoder` had already decided the document's shape: any field whose type
+  didn't match (`size` as a string, `version` as a number, which real sources publish) threw, the
+  typed decode returned nil, and the source index was empty. The marketplace then showed its "no
+  apps" card for that source while the rail still counted the raw app list — exactly the screenshot.
+- **The fix is to stop declaring a schema.** `AltSource`/`AltApp`/`AltVersion` are now built from a
+  `[String: Any]` tree produced by `JSONSerialization`, with `PlistValue` coercing each field
+  (`"1"` and `1` both read as a version). A mistyped field costs that field, not the app.
+- **The models moved apart from the store** so they can be compiled and run where Combine and
+  URLSession don't exist: `AltSource.swift` (models), `SourceStore.swift` (fetch/cache/merge),
+  `SourceKind.swift` (types), `GitHubSource.swift` (release reader).
+- **`tools/parser-check`** decodes real documents through those models and fails if `apps` in the
+  JSON doesn't match what the models produced. CI runs it in a Swift container; CyPwn's host blocks
+  GitHub's runners, so it's skipped there and named as skipped — the three sources that do load are
+  enough to catch a regression, and the CyPwn numbers were checked by hand (209/209).
+

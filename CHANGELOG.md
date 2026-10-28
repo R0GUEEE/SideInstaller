@@ -4,6 +4,14 @@ All notable changes to SideInstaller are documented here.
 
 ## Unreleased
 
+### Fixed
+- **Sources whose apps disappeared now list them.** A source is read field by field instead of
+  through one typed schema: the v1 sources (CyPwn and friends) keep their only release at the app's
+  top level, and a single field of an unexpected type used to make the whole document unreadable —
+  209 apps in, nothing out. Verified against CyPwn (209/209), AppTesters (9,882/9,882), AltStore
+  (6/6) and Quark (8/8), and checked in CI by `source-parser`, which decodes live documents through
+  the app's own models and fails if an app is dropped.
+
 ### Added
 - **A repository market, every entry checked.** 33 sources across six groups, each one fetched
   during development and confirmed to return an AltStore-format document (or, for the six GitHub
