@@ -8,7 +8,7 @@ import UIKit
 /// The CMS signature isn't verified (the device already trusts installed
 /// profiles). The plist payload is found by scanning the blob, as StikDebug
 /// does, rather than using `CMSDecoder`.
-struct ProvisioningProfile: Identifiable, Equatable {
+struct ProvisioningProfile: Identifiable, @unchecked Sendable, Equatable {
 
     /// Apple's name for the App ID the profile was issued against, e.g.
     /// "SideStore" — not the app's display name, though they usually match.
@@ -108,7 +108,7 @@ struct ProvisioningProfile: Identifiable, Equatable {
 
 /// One app installation_proxy reported, kept only when it was installed with a
 /// provisioning profile — i.e. sideloaded rather than from the App Store.
-struct SideloadedApp: Identifiable, Equatable {
+struct SideloadedApp: Identifiable, Equatable, @unchecked Sendable {
 
     let bundleID: String
     let name: String
@@ -136,7 +136,7 @@ struct SideloadedApp: Identifiable, Equatable {
 
 /// An installed app with every profile on the device that could have signed it,
 /// latest expiry first. Multiple profiles are normal: each re-sign leaves one.
-struct SideloadedAppStatus: Identifiable, Equatable {
+struct SideloadedAppStatus: Identifiable, Equatable, @unchecked Sendable {
 
     let app: SideloadedApp
     let profiles: [ProvisioningProfile]
@@ -411,16 +411,34 @@ final class SideloadedAppsManager: ObservableObject {
     /// What the device said last time, per device, rendered on the same path as
     /// a live read.
     private func adopt(_ cached: CachedInventory) {
-        let apps = cached.apps.compactMap(SideloadedApp.init(plist:))
-        let profiles = cached.profiles.compactMap(ProvisioningProfile.init(data:))
-        let matched = ProfileMatcher.match(apps: apps, profiles: profiles)
-        entries = matched.entries
-        unmatched = matched.unmatched
-        hasLoaded = true
-        lastRefreshed = cached.date
-        Task { await rebuildRefreshable() }
-        loadIcons(for: apps.map(\.bundleID))
-        engine.log("Sideloaded apps: showing \(apps.count) from the last read, \(Self.since(cached.date)).")
+        // Parsing the profile blobs and matching them to apps is the expensive
+        // part — a few hundred profiles with property lists inside each. It
+        // runs off the main actor, so the tab draws its frame first.
+        Task {
+            let result = await Task.detached(priority: .userInitiated) { () -> Parsed in
+                Self.parse(cached.apps, cached.profiles)
+            }.value
+            entries = result.matched.entries
+            unmatched = result.matched.unmatched
+            hasLoaded = true
+            lastRefreshed = cached.date
+            await rebuildRefreshable()
+            loadIcons(for: result.apps.map(\.bundleID))
+            engine.log("Sideloaded apps: showing \(result.apps.count) from the last read, \(Self.since(cached.date)).")
+        }
+    }
+
+    /// Apps, profiles and the match between them — everything the page needs,
+    /// worked out away from the main actor.
+    struct Parsed {
+        let apps: [SideloadedApp]
+        let matched: (entries: [SideloadedAppStatus], unmatched: [ProvisioningProfile])
+    }
+
+    nonisolated static func parse(_ appPlists: [[String: Any]], _ profileBlobs: [Data]) -> Parsed {
+        let apps = appPlists.compactMap(SideloadedApp.init(plist:))
+        let profiles = profileBlobs.compactMap(ProvisioningProfile.init(data:))
+        return Parsed(apps: apps, matched: ProfileMatcher.match(apps: apps, profiles: profiles))
     }
 
     private static func since(_ date: Date) -> String {
@@ -439,9 +457,11 @@ final class SideloadedAppsManager: ObservableObject {
             do {
                 let inventory = try await engine.sideloadedAppInventory()
                 Self.cache(inventory.apps, inventory.profiles)
-                let apps = inventory.apps.compactMap(SideloadedApp.init(plist:))
-                let profiles = inventory.profiles.compactMap(ProvisioningProfile.init(data:))
-                let matched = ProfileMatcher.match(apps: apps, profiles: profiles)
+                let result = await Task.detached(priority: .userInitiated) {
+                    Self.parse(inventory.apps, inventory.profiles)
+                }.value
+                let apps = result.apps
+                let matched = result.matched
                 entries = matched.entries
                 unmatched = matched.unmatched
                 await rebuildRefreshable()
@@ -1029,7 +1049,9 @@ struct AppsView: View {
         if manager.hasLoaded && manager.entries.isEmpty && !manager.isWorking {
             emptyState.transition(.cardAppear)
         } else if !manager.entries.isEmpty {
-            VStack(spacing: 14) {
+            // Lazy: a device with dozens of sideloaded apps built every row up
+            // front, each with a menu, an icon lookup and an expiry label.
+            LazyVStack(spacing: 14) {
                 HStack {
                     Text(manager.entries.count == 1
                          ? L("%d app", manager.entries.count)
