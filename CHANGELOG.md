@@ -5,6 +5,14 @@ All notable changes to SideInstaller are documented here.
 ## Unreleased
 
 ### Changed
+- **The marketplace is lighter and fetches faster.** A source is decoded once into the few fields a
+  row shows — name, developer, category, icon, releases — and the document itself (descriptions,
+  screenshots, news) is never kept, so a ten-thousand-app source costs a fraction of the memory it
+  did. Sources fetch in parallel, four at a time, and a refresh sends the cached `ETag` as
+  `If-None-Match`, so an unchanged source usually answers 304 and reads no body at all. Cached copies
+  are loaded first, so the list is browsable before the network answers.
+
+### Changed
 - **Menus load faster**, in three places that were doing far more work than the screen needed:
   - *Marketplace* built its catalogue with a scan per release — quadratic, and a ten-thousand-app
     repository stalled it. The release→source mapping is now indexed in the same pass, the rail's

@@ -1316,3 +1316,19 @@ Two features added on top of the install pipeline: browsing AltStore sources, an
   query, sort and catalogue revision — the same pattern as the source list, which is the lesson
   from the earlier freeze.
 
+### A lighter marketplace
+
+- **What was kept, and wasn't.** The store used to hold every decoded `AltSource` — the whole
+  document, screenshots and news included — for each source, and the view walked it. It now decodes
+  once, off the main actor, into `MarketEntry` rows (a dozen strings and the release list), drops
+  the document, and merges those. `AltSource`/`AltApp` stay what they are: the decoder.
+- **Fetching.** `refreshAll` runs four tasks at once under a sliding task group; each source sends
+  `If-None-Match` with the `ETag` saved beside its cached JSON, and a 304 reuses the cached bytes.
+  Before, sources were fetched in sequence and always downloaded in full.
+- **What the view does now.** Nothing but filter and sort. The store owns merging, featured keys
+  and per-source counts; the view memoises its visible list against `store.revision`, so a scroll
+  pass touches no catalogue data at all.
+- **Removed**: `SourcesView`, `SourceDetailView`, `AltAppView` and the old `MergerAppView` over
+  `AltSource`. Every one was superseded — the marketplace's rail covers a source, and the merged
+  page covers an app — and each was a second copy of the catalogue on screen.
+
