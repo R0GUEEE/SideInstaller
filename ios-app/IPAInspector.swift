@@ -396,11 +396,14 @@ private func thinMachO(_ bytes: [UInt8], _ base: Int) -> MachOInfo? {
     let magic = bigEndian32(bytes, base)
     let bigEndian: Bool
     let is64: Bool
+    // The magic is read big-endian, so the byte order it comes back in says
+    // how the file's own fields are stored: an iOS arm64 binary starts
+    // `CF FA ED FE`, which is 0xCFFAEDFE here and little-endian inside.
     switch magic {
-    case 0xFEED_FACE:   bigEndian = false; is64 = false     // MH_MAGIC
-    case 0xFEED_FACF:   bigEndian = false; is64 = true      // MH_MAGIC_64
-    case 0xCEFA_EDFE:   bigEndian = true;  is64 = false     // MH_CIGAM
-    case 0xCFFA_EDFE:   bigEndian = true;  is64 = true      // MH_CIGAM_64
+    case 0xCFFA_EDFE:   bigEndian = false; is64 = true      // MH_MAGIC_64 in a little-endian file
+    case 0xCEFA_EDFE:   bigEndian = false; is64 = false     // MH_MAGIC
+    case 0xFEED_FACF:   bigEndian = true;  is64 = true      // MH_MAGIC_64 in a big-endian file
+    case 0xFEED_FACE:   bigEndian = true;  is64 = false     // MH_MAGIC
     default: return nil
     }
     let cpu = read32(bytes, base + 4, bigEndian: bigEndian)

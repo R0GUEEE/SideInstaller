@@ -110,6 +110,10 @@ struct RootView: View {
         }
         // A certificate a link brought is checked and imported by the same
         // manager as the Certificates page.
+        // A source link opens its add sheet on the Tools tab.
+        .onChange(of: engine.sourceToAdd) { _, url in
+            if url != nil { page = .tools }
+        }
         .onChange(of: engine.certificateToImport) { _, request in
             guard let request else { return }
             engine.certificateToImport = nil
