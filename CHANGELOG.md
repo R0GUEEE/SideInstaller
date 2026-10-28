@@ -5,6 +5,18 @@ All notable changes to SideInstaller are documented here.
 ## Unreleased
 
 ### Added
+- **A local server for the Telegram source.** Sources › Telegram channels › **Local server** starts an
+  HTTP server bound to `127.0.0.1` only, serving `/telegram-source.json` (rebuilt on every request),
+  `/health` and a status page. That URL can be added as a source by anything on the same iPhone —
+  SideStore and AltStore included — so the generated list works as a live URL rather than a file.
+
+### Note
+- **An api_id/api_hash isn't a login.** It identifies an application to Telegram; reading *your*
+  joined channels needs an MTProto session for your account, which this build doesn't have. The
+  server serves what the studio can produce — public previews, imported exports, direct `.ipa` links
+  — and says so on its index page. iOS also stops the socket when the app leaves the foreground.
+
+### Added
 - **Telegram API credentials, set up in three steps.** Sources › Telegram channels ›
   **Set up API credentials** links straight to my.telegram.org/apps, takes the api_id and api_hash
   Telegram issues for an app, checks their shape, and keeps them in the Keychain. They're what any

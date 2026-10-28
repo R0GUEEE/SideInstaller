@@ -1529,3 +1529,21 @@ Measured against the live previews:
   storage bound to the Keychain, a code/2FA UI, and a download path that streams a file from
   Telegram. Each is verifiable only on a device with a real account, so it should be its own change.
 
+### The loopback source server
+
+- **Why a server at all**: SideStore and AltStore add *sources by URL*. A generated file is one
+  import; a URL is a source. `LocalSourceServer` binds `127.0.0.1` (via `NWParameters
+  .requiredLocalEndpoint`, not `NWListener(using:on:)`, which would listen on every interface) and
+  serves `/telegram-source.json` — regenerated per request, so a scan immediately changes what a
+  client fetches — plus `/health` and an index page that lists the channels and states the limits.
+- **Loopback reachability** is deliberate: any app on the device can reach 127.0.0.1, and iOS's Local
+  Network permission doesn't apply to loopback, so no prompt is involved. Nothing off the device can.
+- **iOS ends it when the app is suspended.** Without a background mode (audio/VoIP/location — none
+  of which this app should claim) a listening socket doesn't survive, so the card says the server
+  runs while SideInstaller is open. A client that fetched the source keeps its copy.
+- **What it can't do**, since it came up: an `api_id`/`api_hash` is app identification, not
+  authorization. Scraping *your* joined channels requires an MTProto session (`auth.sendCode` →
+  code → `auth.signIn`, SRP for 2FA) held on the device. Without that client, the server serves
+  public previews and imported exports, and its index page says exactly that rather than implying
+  the account is connected.
+
