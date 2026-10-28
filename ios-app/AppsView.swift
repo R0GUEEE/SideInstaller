@@ -386,14 +386,47 @@ final class SideloadedAppsManager: ObservableObject {
         }.count
     }
 
-    /// Loads once when the page opens with the tunnel up, without showing
-    /// errors. Opening the page doesn't start LocalDevVPN; Load does.
+    /// Shows the last list read from this device straight away, and reads it
+    /// again in the background only when that's cheap.
+    ///
+    /// Opening the page used to open the device link — start LocalDevVPN, wait
+    /// for the tunnel, walk a pairing handshake — before a single app appeared.
+    /// None of that is needed to show what was already read: the list is cached
+    /// per device, and an explicit Load or pull-to-refresh does the real read.
+    /// An automatic re-read happens only if the link is already open, so it
+    /// costs one query and no connection.
     func autoLoad() {
-        guard !didAutoLoad, !hasLoaded, !isWorking else { return }
+        guard !didAutoLoad else { return }
+        if !hasLoaded, let cached = Self.cachedInventory() {
+            adopt(cached)
+        }
         engine.refreshNetworkStatus()
-        guard engine.vpnConnected else { return }
+        guard engine.vpnConnected,
+              !engine.isRunning,
+              engine.connection.isConnected else { return }
         didAutoLoad = true
         load(quiet: true)
+    }
+
+    /// What the device said last time, per device, rendered on the same path as
+    /// a live read.
+    private func adopt(_ cached: CachedInventory) {
+        let apps = cached.apps.compactMap(SideloadedApp.init(plist:))
+        let profiles = cached.profiles.compactMap(ProvisioningProfile.init(data:))
+        let matched = ProfileMatcher.match(apps: apps, profiles: profiles)
+        entries = matched.entries
+        unmatched = matched.unmatched
+        hasLoaded = true
+        lastRefreshed = cached.date
+        Task { await rebuildRefreshable() }
+        loadIcons(for: apps.map(\.bundleID))
+        engine.log("Sideloaded apps: showing \(apps.count) from the last read, \(Self.since(cached.date)).")
+    }
+
+    private static func since(_ date: Date) -> String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .full
+        return formatter.localizedString(for: date, relativeTo: Date())
     }
 
     /// Ask the device what it has. `quiet` logs failures instead of showing them.
@@ -405,6 +438,7 @@ final class SideloadedAppsManager: ObservableObject {
         Task {
             do {
                 let inventory = try await engine.sideloadedAppInventory()
+                Self.cache(inventory.apps, inventory.profiles)
                 let apps = inventory.apps.compactMap(SideloadedApp.init(plist:))
                 let profiles = inventory.profiles.compactMap(ProvisioningProfile.init(data:))
                 let matched = ProfileMatcher.match(apps: apps, profiles: profiles)
@@ -426,6 +460,64 @@ final class SideloadedAppsManager: ObservableObject {
             }
             isWorking = false
         }
+    }
+
+    // MARK: - The last read
+
+    /// The device's inventory as it last answered, so the page can draw it
+    /// without opening the link. Keyed by UDID, so two devices never mix.
+    struct CachedInventory: Codable {
+        let apps: [[String: Any]]
+        let profiles: [Data]
+        let date: Date
+
+        enum CodingKeys: String, CodingKey { case apps, profiles, date }
+
+        init(apps: [[String: Any]], profiles: [Data], date: Date) {
+            self.apps = apps
+            self.profiles = profiles
+            self.date = date
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            let data = try container.decode(Data.self, forKey: .apps)
+            apps = ((try? PropertyListSerialization.propertyList(from: data, format: nil))
+                as? [[String: Any]]) ?? []
+            profiles = try container.decode([Data].self, forKey: .profiles)
+            date = try container.decode(Date.self, forKey: .date)
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            // Plists hold Any; JSON doesn't, and this is what the device sent.
+            let data = try PropertyListSerialization.data(fromPropertyList: apps,
+                                                          format: .binary, options: 0)
+            try container.encode(data, forKey: .apps)
+            try container.encode(profiles, forKey: .profiles)
+            try container.encode(date, forKey: .date)
+        }
+    }
+
+    private static var inventoryFile: URL {
+        let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        let device = Engine.shared.deviceUDID ?? "unknown"
+        let safe = device.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "device"
+        return base.appendingPathComponent("AppInventory-\(safe).plist")
+    }
+
+    static func cache(_ apps: [[String: Any]], _ profiles: [Data]) {
+        let cached = CachedInventory(apps: apps, profiles: profiles, date: Date())
+        guard let data = try? PropertyListEncoder().encode(cached) else { return }
+        try? data.write(to: inventoryFile, options: .atomic)
+    }
+
+    static func cachedInventory() -> CachedInventory? {
+        guard let data = try? Data(contentsOf: inventoryFile),
+              let cached = try? PropertyListDecoder().decode(CachedInventory.self, from: data)
+        else { return nil }
+        return cached
     }
 
     // MARK: - Icons
@@ -805,6 +897,17 @@ struct AppsView: View {
         }
     }
 
+    /// "just now", "3 min ago", "2 h ago" — how old the shown list is.
+    static func shortSince(_ date: Date) -> String {
+        let seconds = max(0, Date().timeIntervalSince(date))
+        switch seconds {
+        case ..<60:      return L("just now")
+        case ..<3_600:   return L("%d min ago", Int(seconds / 60))
+        case ..<86_400:  return L("%d h ago", Int(seconds / 3_600))
+        default:         return L("%d d ago", Int(seconds / 86_400))
+        }
+    }
+
     private func loadLabel(spinner: Color) -> some View {
         HStack(spacing: 10) {
             if manager.isWorking {
@@ -813,7 +916,14 @@ struct AppsView: View {
             } else {
                 Image(systemName: manager.hasLoaded ? "arrow.clockwise" : "iphone.and.arrow.forward")
                     .contentTransition(.symbolEffect(.replace))
-                Text(manager.hasLoaded ? L("Reload") : L("Load apps"))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(manager.hasLoaded ? L("Reload") : L("Load apps"))
+                    if manager.hasLoaded, let date = manager.lastRefreshed, !manager.isWorking {
+                        Text(L("read %@", Self.shortSince(date)))
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
             }
         }
     }
