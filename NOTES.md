@@ -1510,3 +1510,22 @@ Measured against the live previews:
   them back, and tapping one opens it. A channel that links a direct `.ipa` in its post text
   generates a real download URL, and those install normally.
 
+### Telegram authorization: what can be streamlined, and what can't
+
+- **Credential capture** (`TelegramCredentials`): api_id/api_hash from my.telegram.org/apps, shaped
+  checked (numeric id, 32 hex chars), stored as `id:hash` under the Keychain service
+  `com.sideinstaller.telegram` with `kSecAttrAccessibleAfterFirstUnlock`. The setup screen is the
+  three steps Telegram actually requires, with the developer page one tap away.
+- **Why the credentials aren't the login.** A Telegram client authenticates with an MTProto session:
+  `auth.sendCode` → the code (other devices or SMS) → `auth.signIn`, plus SRP for accounts with 2FA,
+  and an auth key that must persist (it *is* the credential). That needs a protocol client in the
+  build; storing api_id/api_hash only removes the registration step.
+- **The offline alternative, which works today**: Telegram Desktop's "Export chat history → JSON"
+  writes `result.json` plus `files/…`. `TelegramExport.read` maps each `.ipa` message to an entry;
+  files beside the JSON become `file://` releases, which the installer already accepts, so they
+  sign and install like any import. For a channel with previews off this is the only path that
+  yields installable apps, and it needs no account at all.
+- **What remains for a real login**: a Rust MTProto client (grammers) behind the existing FFI, session
+  storage bound to the Keychain, a code/2FA UI, and a download path that streams a file from
+  Telegram. Each is verifiable only on a device with a real account, so it should be its own change.
+

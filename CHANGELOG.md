@@ -5,6 +5,21 @@ All notable changes to SideInstaller are documented here.
 ## Unreleased
 
 ### Added
+- **Telegram API credentials, set up in three steps.** Sources › Telegram channels ›
+  **Set up API credentials** links straight to my.telegram.org/apps, takes the api_id and api_hash
+  Telegram issues for an app, checks their shape, and keeps them in the Keychain. They're what any
+  Telegram client needs before it can log in.
+- **Import a channel export.** Telegram Desktop › a channel › ⋮ › Export chat history › JSON: pick
+  its `result.json` and every `.ipa` it lists joins the studio — and any file that came with the
+  export **installs straight from disk**, no account and no preview needed. That's the offline path
+  to a channel whose previews are off.
+
+### Note
+- **The login itself is still the MTProto client's job.** Credentials get a client to the door; the
+  session (code, 2FA, key on device) is a separate piece of work and the screen says so rather than
+  pretending the account is connected.
+
+### Added
 - **A Telegram studio** (Sources › Telegram channels): pick the channels to watch, set how far back to
   scan (each preview page is about twenty posts), scan them, and turn the result into an
   AltStore-format source at `Documents/Telegram/telegram-source.json` — loadable by the app through
