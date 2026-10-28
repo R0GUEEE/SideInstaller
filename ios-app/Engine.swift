@@ -3465,6 +3465,15 @@ final class Engine: ObservableObject {
         return try await onDeviceQueue { try self.connection.appIcon(bundleID: bundleID, side: side) }
     }
 
+    /// Icons for several apps over one device round trip.
+    @MainActor
+    func appIcons(bundleIDs: [String], side: CGFloat = 60) async throws -> [String: Data] {
+        try await ensurePairingConnection()
+        return try await onDeviceQueue {
+            try self.connection.appIcons(bundleIDs: bundleIDs, side: side)
+        }
+    }
+
     /// Launches an installed app the way the Home Screen does.
     @MainActor
     func launchApp(bundleID: String, name: String) async throws {

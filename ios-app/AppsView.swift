@@ -347,6 +347,8 @@ final class SideloadedAppsManager: ObservableObject {
     /// The apps a refresh can act on: an installed app whose IPA is still in
     /// Documents. Rebuilt on every load.
     @Published private(set) var refreshable: [RefreshJob] = []
+    /// The refreshable jobs by bundle ID, so a row doesn't scan the list.
+    @Published private(set) var jobsByBundle: [String: RefreshJob] = [:]
     /// Installed apps' icons, by bundle ID. Read from the device once and kept
     /// on disk, so the list doesn't re-fetch them on every launch.
     @Published private(set) var icons: [String: UIImage] = [:]
@@ -430,6 +432,9 @@ final class SideloadedAppsManager: ObservableObject {
 
     func icon(for bundleID: String) -> UIImage? { icons[bundleID] }
 
+    /// The job that would re-sign this app, if it can be refreshed in place.
+    func job(for bundleID: String) -> RefreshJob? { jobsByBundle[bundleID] }
+
     private static var iconDirectory: URL {
         let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
@@ -441,23 +446,44 @@ final class SideloadedAppsManager: ObservableObject {
         return iconDirectory.appendingPathComponent(String(safe.suffix(120)) + ".png")
     }
 
-    /// Reads app icons off the device, one at a time, off the main actor. A
-    /// cached PNG is used when there is one.
+    /// Fills the icon column: cached PNGs first, then one batched round trip for
+    /// whatever is missing.
+    ///
+    /// Icons used to be fetched one at a time, each opening its own
+    /// `app_service` connection — a handshake per app, with the list stuck on
+    /// placeholders meanwhile. One connection serves the whole batch, and the
+    /// cache means only the first launch pays for it.
     private func loadIcons(for bundleIDs: [String]) {
         let missing = bundleIDs.filter { icons[$0] == nil }
         guard !missing.isEmpty else { return }
         Task {
+            var wanted: [String] = []
             for bundleID in missing {
                 if let cached = Self.cachedIcon(bundleID) {
                     await MainActor.run { self.icons[bundleID] = cached }
-                    continue
+                } else {
+                    wanted.append(bundleID)
                 }
-                guard let data = try? await engine.appIcon(bundleID: bundleID),
-                      let image = UIImage(data: data) else { continue }
-                await MainActor.run { self.icons[bundleID] = image }
-                try? FileManager.default.createDirectory(at: Self.iconDirectory,
-                                                         withIntermediateDirectories: true)
-                try? data.write(to: Self.iconFile(for: bundleID), options: .atomic)
+            }
+            guard !wanted.isEmpty else { return }
+            // Batches of 40: one connection each, and the list fills in as they
+            // come back rather than all at once at the end.
+            for chunk in stride(from: 0, to: wanted.count, by: 40).map({
+                Array(wanted[$0..<min($0 + 40, wanted.count)])
+            }) {
+                guard let fetched = try? await engine.appIcons(bundleIDs: chunk) else { continue }
+                var decoded: [String: UIImage] = [:]
+                for (bundleID, data) in fetched {
+                    guard let image = UIImage(data: data) else { continue }
+                    decoded[bundleID] = image
+                    try? FileManager.default.createDirectory(at: Self.iconDirectory,
+                                                             withIntermediateDirectories: true)
+                    try? data.write(to: Self.iconFile(for: bundleID), options: .atomic)
+                }
+                guard !decoded.isEmpty else { continue }
+                await MainActor.run {
+                    for (bundleID, image) in decoded { self.icons[bundleID] = image }
+                }
             }
         }
     }
@@ -583,6 +609,8 @@ final class SideloadedAppsManager: ObservableObject {
             SideloadedAppsManager.pair(installed, with: IPALibrary.installable())
         }.value
         refreshable = matched
+        jobsByBundle = Dictionary(matched.map { ($0.bundleID, $0) },
+                                  uniquingKeysWith: { first, _ in first })
         unrefreshable = max(0, entries.count - matched.count)
         engine.log("Sideloaded apps: \(matched.count) of \(entries.count) can be refreshed from an IPA on disk.")
     }
@@ -622,6 +650,8 @@ struct AppsView: View {
     @State private var pendingUninstall: SideloadedAppStatus?
     /// The app whose Info sheet is up.
     @State private var infoTarget: SideloadedAppStatus?
+    /// Newest release per bundle ID across the sources, built once.
+    @State private var updateCandidates: [String: (version: String, url: URL)] = [:]
     /// Observed so labels redraw when the language changes.
     @EnvironmentObject private var loc: Localizer
     /// Observed for `installProgress` during a refresh.
@@ -659,7 +689,12 @@ struct AppsView: View {
         .sheet(item: $infoTarget) { status in
             AppInfoSheet(status: status, manager: manager)
         }
-        .onAppear { manager.autoLoad() }
+        .onAppear {
+            manager.autoLoad()
+            refreshUpdateCandidates()
+        }
+        .onChange(of: sources.sources.map(\.appCount)) { _, _ in refreshUpdateCandidates() }
+        .onChange(of: manager.entries.count) { _, _ in refreshUpdateCandidates() }
         .confirmationDialog(L("Uninstall this app?"),
                             isPresented: Binding(get: { pendingUninstall != nil },
                                                  set: { if !$0 { pendingUninstall = nil } }),
@@ -987,7 +1022,7 @@ struct AppsView: View {
 
         Divider()
 
-        if let job = manager.refreshable.first(where: { $0.bundleID == status.app.bundleID }) {
+        if let job = manager.job(for: status.app.bundleID) {
             Button {
                 manager.refresh(job)
             } label: {
@@ -1073,24 +1108,33 @@ struct AppsView: View {
         }
     }
 
-    /// The newest release of this app in any configured source, when it's newer
-    /// than what's installed.
-    private func updateCandidate(for status: SideloadedAppStatus) -> (version: String, url: URL)? {
-        let installed = status.app.version ?? "0"
-        var best: (version: String, url: URL)?
+    /// The newest release in any configured source, per app, worked out when the
+    /// sources or the installed apps change. Asking per row meant walking every
+    /// source's catalogue on every layout pass — the largest list here has ten
+    /// thousand apps.
+    private func refreshUpdateCandidates() {
+        var best: [String: (version: String, url: URL)] = [:]
         for loaded in sources.sources {
             guard let source = loaded.source else { continue }
-            for app in source.installableApps where app.bundleIdentifier == status.app.bundleID {
-                guard let release = app.latest, let url = release.url,
+            for app in source.installableApps {
+                guard let key = app.bundleIdentifier,
+                      let release = app.latest, let url = release.url,
                       let version = release.version else { continue }
-                // Numeric compare, so 1.10 is newer than 1.9.
-                guard version.compare(installed, options: .numeric) == .orderedDescending else { continue }
-                if let current = best,
+                if let current = best[key],
                    version.compare(current.version, options: .numeric) != .orderedDescending { continue }
-                best = (version, url)
+                best[key] = (version, url)
             }
         }
-        return best
+        updateCandidates = best
+    }
+
+    /// The newest release of this app, when it's newer than what's installed.
+    private func updateCandidate(for status: SideloadedAppStatus) -> (version: String, url: URL)? {
+        guard let candidate = updateCandidates[status.app.bundleID] else { return nil }
+        // Numeric compare, so 1.10 is newer than 1.9.
+        let installed = status.app.version ?? "0"
+        return candidate.version.compare(installed, options: .numeric) == .orderedDescending
+            ? candidate : nil
     }
 
     private func appRow(_ status: SideloadedAppStatus) -> some View {
@@ -1111,7 +1155,7 @@ struct AppsView: View {
                 Spacer(minLength: 8)
                 // The action most people come here for, one tap away: every app
                 // can hand its seven days to this Apple ID, whatever signed it.
-                if let job = manager.refreshable.first(where: { $0.bundleID == status.app.bundleID }) {
+                if let job = manager.job(for: status.app.bundleID) {
                     Button {
                         manager.resign(job)
                     } label: {

@@ -875,6 +875,35 @@ final class DeviceConnection {
         var errorDescription: String? { message }
     }
 
+    /// Icons for several apps at once, over one `app_service` connection.
+    ///
+    /// Opening the service per icon is what made the app list crawl: each call
+    /// reconnects and re-handshakes. One connection for the batch costs one.
+    func appIcons(bundleIDs: [String], side: CGFloat) throws -> [String: Data] {
+        guard !bundleIDs.isEmpty else { return [:] }
+        guard let adapter, let handshake else { throw fail("not connected") }
+        var client: OpaquePointer?
+        try check(app_service_connect_rsd(adapter, handshake, &client),
+                  "app_service_connect_rsd failed")
+        guard let client else { throw fail("app_service client was null") }
+        defer { app_service_free(client) }
+
+        var out: [String: Data] = [:]
+        out.reserveCapacity(bundleIDs.count)
+        for bundleID in bundleIDs {
+            var icon: UnsafeMutablePointer<IconDataC>?
+            let error = bundleID.withCString {
+                app_service_fetch_app_icon(client, $0, Float(side), Float(side), 2, 1, &icon)
+            }
+            guard error == nil, let icon else { continue }
+            if let bytes = icon.pointee.data, icon.pointee.data_len > 0 {
+                out[bundleID] = Data(bytes: bytes, count: Int(icon.pointee.data_len))
+            }
+            app_service_free_icon_data(icon)
+        }
+        return out
+    }
+
     /// Whether an app has a live process. Uses `app_service`'s process list,
     /// which needs no debugger and so can check a running app without stopping it.
     func isProcessRunning(bundleID: String) throws -> Bool {

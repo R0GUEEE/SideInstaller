@@ -147,6 +147,14 @@ struct MarketplaceView: View {
     /// How the list is ordered. Applies to every view, including a source's own
     /// shelf, so the same list can be read newest-first or alphabetically.
     @State private var sort: SortOrder = .name
+    /// The rows the list draws, and the counts the rail shows. Held rather than
+    /// computed in `body`: filtering and sorting ten thousand apps on every
+    /// layout pass is what made the screen feel stuck.
+    @State private var visibleApps: [MergedApp] = []
+    @State private var categoryCounts: [String: Int] = [:]
+    @State private var featuredKeys: Set<String> = []
+    @State private var featuredCount = 0
+    @State private var revision = 0
     @State private var selected: MergedApp?
     @State private var showAdd = false
     @State private var showSettings = false
@@ -180,6 +188,9 @@ struct MarketplaceView: View {
             }
             .onChange(of: store.sources.map(\.id)) { _, _ in rebuild() }
             .onChange(of: store.sources.map(\.appCount)) { _, _ in rebuild() }
+            .onChange(of: filter) { _, _ in refreshVisible() }
+            .onChange(of: query) { _, _ in refreshVisible() }
+            .onChange(of: sort) { _, _ in refreshVisible() }
             // An install takes over the Install tab, so the app's page closes
             // itself rather than sitting over the run's progress.
             .onChange(of: engine.isRunning) { _, running in
@@ -205,12 +216,12 @@ struct MarketplaceView: View {
 
                 railButton(.all, title: L("All apps"), icon: "square.grid.2x2.fill",
                            count: catalog.count)
-                if !featuredIDs.isEmpty {
+                if featuredCount > 0 {
                     railButton(.featured, title: L("Featured"), icon: "star.fill",
-                               count: catalog.filter { featuredIDs.contains($0.key) }.count)
+                               count: featuredCount)
                 }
 
-                let categories = presentCategories
+                let categories = MarketCategory.all.filter { (categoryCounts[$0.id] ?? 0) > 0 }
                 if !categories.isEmpty {
                     Text(L("Categories"))
                         .font(.caption2.weight(.semibold))
@@ -219,7 +230,7 @@ struct MarketplaceView: View {
                         .padding(.top, 12)
                     ForEach(categories) { category in
                         railButton(.category(category.id), title: category.title, icon: category.icon,
-                                   count: catalog.filter { $0.category == category }.count)
+                                   count: categoryCounts[category.id] ?? 0)
                     }
                 }
 
@@ -304,13 +315,13 @@ struct MarketplaceView: View {
             // cards should exist.
             LazyVStack(alignment: .leading, spacing: 18) {
                 header
-                if visible.isEmpty {
+                if visibleApps.isEmpty {
                     emptyState
                 } else {
                     // Compact rows rather than a grid of cards: more apps per
                     // screen, and the install button sits on the row.
                     LazyVStack(spacing: 8) {
-                        ForEach(visible) { app in
+                        ForEach(visibleApps) { app in
                             HStack(spacing: 10) {
                                 Button {
                                     selected = app
@@ -386,7 +397,7 @@ struct MarketplaceView: View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(title)
                 .font(.title2.weight(.bold))
-            Text(visible.count == 1 ? L("1 app") : L("%ld apps", visible.count))
+            Text(visibleApps.count == 1 ? L("1 app") : L("%ld apps", visibleApps.count))
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Spacer(minLength: 0)
@@ -465,31 +476,43 @@ struct MarketplaceView: View {
     /// Every app in every source, one entry per bundle ID. Two sources listing
     /// the same app are one entry, and the union of their releases is what the
     /// version picker offers.
+    /// Every app in every source, one entry per bundle ID. Two sources listing
+    /// the same app are one entry, and the union of their releases is what the
+    /// version picker offers.
+    ///
+    /// One pass over the sources. The release→source mapping is indexed as it
+    /// goes: asking "which source carries this release" by scanning each
+    /// source's apps (the obvious way) is quadratic, and with a ten-thousand-app
+    /// repository that alone stalled the screen for seconds.
     private func rebuild() {
         struct Group {
             var listing: Listing
-            var versions: [AltVersion]
-            var sources: [AltSource]
+            var releases: [(AltVersion, AltSource)]
         }
         var groups: [String: Group] = [:]
         var order: [String] = []
         var perSource: [String: [String]] = [:]
+        var featured: Set<String> = []
 
         for loaded in store.sources {
             guard let source = loaded.source else { continue }
+            for bundleID in source.featuredApps ?? [] { featured.insert(bundleID) }
+            // releaseID → the source that lists it, built once per source.
+            var owners: [String: AltSource] = [:]
+            owners.reserveCapacity(source.apps.count * 2)
+            for app in source.installableApps {
+                for release in app.releases { owners[release.id] = source }
+            }
             for app in source.installableApps {
                 let key = app.bundleIdentifier ?? app.id
                 if groups[key] == nil {
-                    groups[key] = Group(listing: Listing(app: app, source: source),
-                                        versions: [], sources: [source])
+                    groups[key] = Group(listing: Listing(app: app, source: source), releases: [])
                     order.append(key)
                 }
                 guard var group = groups[key] else { continue }
-                if !group.sources.contains(where: { $0.id == source.id }) {
-                    group.sources.append(source)
+                for release in app.releases {
+                    group.releases.append((release, owners[release.id] ?? source))
                 }
-                group.versions.append(contentsOf: app.releases)
-                // The entry shown is whichever source has the newest release.
                 let current = group.listing.app.latest?.dateValue ?? .distantPast
                 if (app.latest?.dateValue ?? .distantPast) > current {
                     group.listing = Listing(app: app, source: source)
@@ -500,24 +523,22 @@ struct MarketplaceView: View {
         }
 
         var merged: [String: MergedApp] = [:]
+        merged.reserveCapacity(groups.count)
         for (key, group) in groups {
-            // One release per version, newest first; a build two sources both
-            // carry is listed once, under the first source that has it.
+            // One release per version, newest first.
             var seen = Set<String>()
-            var versions: [(version: AltVersion, source: AltSource)] = []
-            let sorted = group.versions.sorted { lhs, rhs in
-                let left = lhs.dateValue ?? .distantPast
-                let right = rhs.dateValue ?? .distantPast
+            let newestFirst = group.releases.sorted { lhs, rhs in
+                let left = lhs.0.dateValue ?? .distantPast
+                let right = rhs.0.dateValue ?? .distantPast
                 if left != right { return left > right }
-                return (lhs.version ?? "").compare(rhs.version ?? "", options: .numeric) == .orderedDescending
+                return (lhs.0.version ?? "").compare(rhs.0.version ?? "", options: .numeric) == .orderedDescending
             }
-            for release in sorted {
-                let tag = release.version ?? release.id
+            var versions: [(version: AltVersion, source: AltSource)] = []
+            versions.reserveCapacity(newestFirst.count)
+            for entry in newestFirst {
+                let tag = entry.0.version ?? entry.0.id
                 guard seen.insert(tag).inserted else { continue }
-                let owner = group.sources.first { source in
-                    source.installableApps.contains { $0.releases.contains { $0.id == release.id } }
-                } ?? group.listing.source
-                versions.append((release, owner))
+                versions.append((entry.0, entry.1))
             }
             let app = group.listing.app
             merged[key] = MergedApp(key: key,
@@ -530,38 +551,31 @@ struct MarketplaceView: View {
         }
 
         let rebuilt = order.compactMap { merged[$0] }
-        if rebuilt.map(\.id) != catalog.map(\.id) { catalog = rebuilt }
+        catalog = rebuilt
 
         var grouped: [String: [MergedApp]] = [:]
-        for (sourceID, keys) in perSource {
-            grouped[sourceID] = keys.compactMap { merged[$0] }
-        }
-        if grouped.mapValues(\.count) != bySource.mapValues(\.count) { bySource = grouped }
+        for (sourceID, keys) in perSource { grouped[sourceID] = keys.compactMap { merged[$0] } }
+        bySource = grouped
+
+        // Counts once, for the rail.
+        var counts: [String: Int] = [:]
+        for app in rebuilt { counts[app.category.id, default: 0] += 1 }
+        categoryCounts = counts
+        featuredKeys = featured
+        featuredCount = rebuilt.reduce(0) { $0 + (featured.contains($1.key) ? 1 : 0) }
+        revision += 1
+        refreshVisible()
     }
 
-    /// The categories the sources actually use, in the catalogue's order.
-    private var presentCategories: [MarketCategory] {
-        let used = Set(catalog.map(\.category))
-        return MarketCategory.all.filter { used.contains($0) }
-    }
-
-    private var featuredIDs: Set<String> {
-        var out: Set<String> = []
-        for loaded in store.sources {
-            for id in loaded.source?.featuredApps ?? [] { out.insert(id) }
-        }
-        return out
-    }
-
-    /// What the current view shows: filtered by the search field, ordered by
-    /// `sort`.
-    private var visible: [MergedApp] {
+    /// Applies the filter, the search field and the sort — once per change, not
+    /// once per layout pass.
+    private func refreshVisible() {
         var list = catalog
         switch filter ?? .all {
         case .all:
             break
         case .featured:
-            list = list.filter { featuredIDs.contains($0.key) }
+            list = list.filter { featuredKeys.contains($0.key) }
         case .category(let id):
             list = list.filter { $0.category.id == id }
         case .source(let id):
@@ -577,17 +591,9 @@ struct MarketplaceView: View {
                     || $0.key.localizedCaseInsensitiveContains(trimmed)
             }
         }
-        return sorted(list)
+        visibleApps = sorted(list)
     }
 
-    /// "1.2.3 · 3 Feb 2026", as the version menus show a release.
-    private func versionLabel(_ version: AltVersion) -> String {
-        var parts = [version.version ?? L("unknown")]
-        if let date = version.dateValue {
-            parts.append(date.formatted(date: .abbreviated, time: .omitted))
-        }
-        return parts.joined(separator: " · ")
-    }
 
     private func sorted(_ list: [MergedApp]) -> [MergedApp] {
         switch sort {
