@@ -1588,3 +1588,16 @@ Measured against the live previews:
 - **Every channel is checked**: the scan reads all channels whose switch is on, keeps going after a
   failure, and reports per channel — so one dead channel never hides the others' results.
 
+### The configuration toolkit, reachable from Settings
+
+- Settings now carries the same `AppConfigView` the Install screen opens, with the change count in the
+  row. One view, two doors: duplicating it for Settings would have meant two places to keep in step.
+- **Editable load paths**: `Tweak.loadPath` was already what the patcher injects; it just wasn't
+  editable. A `.dylib` now shows a field prefilled with `@executable_path/Frameworks/<name>`, so a
+  library built against `@rpath` or shipped as a framework can name its own path. Packages (`.deb`)
+  don't get the field: their libraries are placed and loaded by the patcher.
+- **Check against the build** compares `config.plistEdits` and `config.entitlements` with
+  `snapshot.plist` / `snapshot.entitlements` (both read from the archive when the page opens) and
+  sorts each into changes / additions / no-ops / invalid. `PlistEdit.object` decides "invalid" — a
+  key whose value can't be typed is caught here rather than during signing.
+

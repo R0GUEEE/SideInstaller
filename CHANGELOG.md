@@ -4,6 +4,16 @@ All notable changes to SideInstaller are documented here.
 
 ## Unreleased
 
+### Added
+- **App configuration is in Settings too.** A row there opens the same toolkit the Install screen does,
+  with the number of pending changes on it — identity, `Info.plist` keys, entitlements, extensions,
+  tweaks and injectors, import/export and reset.
+- **A tweak's load path is editable.** A library built for `@rpath`, or one that lives in a framework,
+  no longer has to sit at `@executable_path/Frameworks/<name>`.
+- **Check against the build.** One tap compares every key and entitlement you set with what the `.ipa`
+  actually contains and reports what changes, what's added, what's already true and what can't be a
+  plist value — before an install rather than after.
+
 ### Changed
 - **Telegram channels scan every page by default.** The per-channel depth is now a switch —
   *Scan every page*, on unless you turn it off — with a forty-page backstop (about eight hundred
