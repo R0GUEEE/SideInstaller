@@ -835,6 +835,7 @@ struct AppsView: View {
             VStack(spacing: 18) {
                 header.cascadeItem(0)
                 refreshAllButton
+                updateAllButton
                 loadButton
                 jitCard
                 refreshRunCard
@@ -1171,6 +1172,52 @@ struct AppsView: View {
         manager.entries.filter { $0.app.kind == kind }
     }
 
+    /// Installs the newest release of every app a source carries newer than what's
+    /// on the device. One at a time: installs share the device link and Apple's
+    /// rate limit.
+    @ViewBuilder
+    private var updateAllButton: some View {
+        let updates = manager.entries.compactMap { status -> (SideloadedAppStatus, String, URL)? in
+            guard let update = updateCandidate(for: status) else { return nil }
+            return (status, update.version, update.url)
+        }
+        if !updates.isEmpty {
+            PanelCard {
+                VStack(alignment: .leading, spacing: 10) {
+                    Label(L("%ld update(s) available", updates.count), systemImage: "arrow.down.circle")
+                        .font(.subheadline.weight(.semibold))
+                    Text(L("Newer releases in your sources: %@.", updates.prefix(4).map(\.0.app.name).joined(separator: ", ")))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button {
+                        Task { await updateAll(updates) }
+                    } label: {
+                        Label(L("Install all updates"), systemImage: "square.and.arrow.down")
+                            .font(.footnote.weight(.semibold))
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(engine.isRunning || manager.isRefreshing)
+                }
+            }
+        }
+    }
+
+    /// Installs each newer release in turn. The engine's one-click run handles
+    /// signing and installing, so this only sequences them.
+    private func updateAll(_ updates: [(SideloadedAppStatus, String, URL)]) async {
+        for (status, version, url) in updates {
+            engine.log("Update all: \(status.app.name) → \(version).")
+            engine.installLinkedIPA(url)
+            // The install runs in the background; wait for it to end before the
+            // next, since they share one device link.
+            while engine.isRunning || engine.isImportingIPA {
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+            }
+        }
+    }
+
     /// The live JIT session, with the way out of it.
     @ViewBuilder
     private var jitCard: some View {
@@ -1286,17 +1333,24 @@ struct AppsView: View {
                 Button {
                     manager.resign(job)
                 } label: {
-                    Label(L("From the .ipa on this device"), systemImage: "doc")
+                    Label(L("From the stored .ipa"), systemImage: "doc")
                 }
                 if let update = updateCandidate(for: status) {
                     Button {
                         engine.installLinkedIPA(update.url)
                     } label: {
-                        Label(L("From a source (%@)", update.version), systemImage: "square.grid.2x2")
+                        Label(L("Update to %@", update.version), systemImage: "arrow.down.circle")
                     }
                 }
+                // Always offered: with no newer release in the configured
+                // sources, the marketplace is where to look for one.
+                Button {
+                    MarketplaceRouter.shared.search(status.app.bundleID)
+                } label: {
+                    Label(L("Find an update in the marketplace"), systemImage: "square.grid.2x2")
+                }
             } label: {
-                Label(L("Reinstall"), systemImage: "arrow.triangle.2.circlepath")
+                Label(L("Update or reinstall"), systemImage: "arrow.triangle.2.circlepath")
             }
         }
 

@@ -50,6 +50,9 @@ final class AppSettings: ObservableObject {
 
     /// What the Install tab starts on.
     @Published var defaultInstallSource: String { didSet { save(defaultInstallSource, "defaultInstallSource") } }
+    /// Ask before a custom .ipa spends an App ID. Off by default: signing then
+    /// installs without a stop, which is what a run is for.
+    @Published var askBeforeAppIDCost: Bool { didSet { save(askBeforeAppIDCost, "askBeforeAppIDCost") } }
 
     // MARK: Persistence
 
@@ -77,6 +80,7 @@ final class AppSettings: ObservableObject {
         marketplaceSort = text("marketplaceSort", "name")
         showNonDirectEntries = bool("showNonDirectEntries", true)
         defaultInstallSource = text("defaultInstallSource", "sideStore")
+        askBeforeAppIDCost = bool("askBeforeAppIDCost", false)
     }
 
     private func save<T>(_ value: T, _ key: String) {
@@ -101,6 +105,7 @@ final class AppSettings: ObservableObject {
         marketplaceSort = "name"
         showNonDirectEntries = true
         defaultInstallSource = "sideStore"
+        askBeforeAppIDCost = false
     }
 
     /// The values as text, for the diagnostics report.
@@ -117,6 +122,7 @@ final class AppSettings: ObservableObject {
             ("Marketplace sort", marketplaceSort),
             ("Show non-direct entries", showNonDirectEntries ? "on" : "off"),
             ("Default install source", defaultInstallSource),
+            ("Ask before an App ID", askBeforeAppIDCost ? "on" : "off"),
         ]
     }
 }

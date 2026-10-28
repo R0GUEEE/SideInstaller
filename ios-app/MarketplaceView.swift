@@ -62,6 +62,7 @@ struct MarketplaceView: View {
     @EnvironmentObject private var engine: Engine
     /// Watched so a change in Settings updates the list immediately.
     @ObservedObject private var settings = AppSettings.shared
+    @ObservedObject private var router = MarketplaceRouter.shared
     @EnvironmentObject private var loc: Localizer
     @ObservedObject var store: SourceStore
 
@@ -142,6 +143,13 @@ struct MarketplaceView: View {
             .onAppear {
                 store.load()
                 syncFromStore()
+                // A search sent from My Apps: show everything, and type it in.
+                if let wanted = router.pendingSearch {
+                    router.pendingSearch = nil
+                    query = wanted
+                    if router.showAllSources { filter = .all }
+                    router.showAllSources = false
+                }
             }
             .onChange(of: store.revision) { _, _ in syncFromStore() }
             .onChange(of: filter) { _, _ in refreshVisible() }
@@ -606,6 +614,17 @@ struct MergerAppView: View {
         .padding(.top, 8)
     }
 
+    /// What's installed on this device, and whether the picked release is newer.
+    /// Read from the cached inventory, so it costs nothing.
+    private var installedStatus: (version: String?, newer: Bool)? {
+        guard let cached = SideloadedAppsManager.cachedInventory() else { return nil }
+        let apps = cached.apps.compactMap { SideloadedApp(plist: $0, kinds: [.sideloaded, .testFlight]) }
+        guard let installed = apps.first(where: { $0.bundleID == app.id }) else { return nil }
+        let newest = app.latest?.version ?? ""
+        let newer = (installed.version ?? "0").compare(newest, options: .numeric) == .orderedAscending
+        return (installed.version, newer)
+    }
+
     private var releaseCard: some View {
         PanelCard {
             VStack(alignment: .leading, spacing: 12) {
@@ -626,6 +645,14 @@ struct MergerAppView: View {
                         }
                         Button(L("Cancel"), role: .cancel) {}
                     }
+                }
+                if let installed = installedStatus {
+                    Label(installed.newer
+                          ? L("Installed %@ — this release is newer", installed.version ?? "?")
+                          : L("Installed %@", installed.version ?? "?"),
+                          systemImage: installed.newer ? "arrow.down.circle.fill" : "checkmark.circle.fill")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(installed.newer ? AnyShapeStyle(Color.orange) : AnyShapeStyle(Color.green))
                 }
                 if let picked {
                     VStack(alignment: .leading, spacing: 8) {

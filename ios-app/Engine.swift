@@ -1899,6 +1899,13 @@ final class Engine: ObservableObject {
             log("⚠️ Couldn't read the IPA's bundle ID, so its App ID cost isn't known; signing goes ahead.")
             return
         }
+        // A run is meant to finish. The prompt exists to stop a surprise spend,
+        // so it's only shown when the user asked for it.
+        guard AppSettings.shared.askBeforeAppIDCost else {
+            log("App IDs: signing \(bundleID) registers the App IDs it needs — going ahead. Settings › Renewals › Ask before an App ID brings the prompt back.")
+            setStep(.sign, .active)
+            return
+        }
         setStep(.sign, .active)
         let cost: AppIDCost
         do {

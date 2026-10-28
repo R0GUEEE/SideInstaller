@@ -115,6 +115,10 @@ struct RootView: View {
         }
         // A certificate a link brought is checked and imported by the same
         // manager as the Certificates page.
+        // A search sent from My Apps lands on the marketplace.
+        .onChange(of: MarketplaceRouter.shared.pendingSearch) { _, search in
+            if search != nil { page = .marketplace }
+        }
         // A source link opens its add sheet on the Tools tab.
         .onChange(of: engine.sourceToAdd) { _, url in
             if url != nil { page = .tools }

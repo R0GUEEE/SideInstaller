@@ -343,6 +343,19 @@ struct RenewalSettingsView: View {
             }
 
             Section {
+                Toggle(isOn: $settings.askBeforeAppIDCost) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(L("Ask before using an App ID"))
+                        Text(L("On, a custom .ipa stops for a yes before it registers an App ID. Off — the default — signing finishes and installs in one go."))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            } header: {
+                Text(L("Installing"))
+            }
+
+            Section {
                 Button {
                     isRunning = true
                     Task {
