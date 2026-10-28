@@ -693,7 +693,7 @@ struct AppsView: View {
             manager.autoLoad()
             refreshUpdateCandidates()
         }
-        .onChange(of: sources.sources.map(\.appCount)) { _, _ in refreshUpdateCandidates() }
+        .onChange(of: sources.revision) { _, _ in refreshUpdateCandidates() }
         .onChange(of: manager.entries.count) { _, _ in refreshUpdateCandidates() }
         .confirmationDialog(L("Uninstall this app?"),
                             isPresented: Binding(get: { pendingUninstall != nil },
@@ -1114,16 +1114,12 @@ struct AppsView: View {
     /// thousand apps.
     private func refreshUpdateCandidates() {
         var best: [String: (version: String, url: URL)] = [:]
-        for loaded in sources.sources {
-            guard let source = loaded.source else { continue }
-            for app in source.installableApps {
-                guard let key = app.bundleIdentifier,
-                      let release = app.latest, let url = release.url,
-                      let version = release.version else { continue }
-                if let current = best[key],
-                   version.compare(current.version, options: .numeric) != .orderedDescending { continue }
-                best[key] = (version, url)
-            }
+        for entry in sources.entries {
+            guard let release = entry.latest, let url = release.link,
+                  let version = release.version else { continue }
+            if let current = best[entry.id],
+               version.compare(current.version, options: .numeric) != .orderedDescending { continue }
+            best[entry.id] = (version, url)
         }
         updateCandidates = best
     }
