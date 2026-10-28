@@ -10,7 +10,7 @@ name: source-parser
 on:
   push:
     paths:
-      - "ios-app/AltSource.swift"
+      - "ios-app/SourceParser.swift"
       - "tools/parser-check/**"
       - ".github/workflows/source-parser.yml"
   workflow_dispatch:
@@ -29,7 +29,8 @@ jobs:
 
       - name: Build the checker
         run: |
-          swiftc -O ios-app/AltSource.swift ios-app/SourceKind.swift tools/parser-check/main.swift \
+          swiftc -O ios-app/SourceParser.swift ios-app/SourceKind.swift \
+            ios-app/GitHubSource.swift tools/parser-check/main.swift \
             -o /tmp/parser-check
 
       - name: Decode real sources
