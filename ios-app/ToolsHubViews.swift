@@ -157,6 +157,9 @@ struct ToolsView: View {
     /// directory listing.
     @State private var storedCount = 0
     @State private var storedBytes: Int64 = 0
+    /// The signing certificate's state, formatted once instead of on every
+    /// redraw — the row is drawn before any of that work can be seen.
+    @State private var certificate: (text: String, tint: Color?) = (L("Reading…"), nil)
 
     var body: some View {
         NavigationStack {
@@ -200,7 +203,12 @@ struct ToolsView: View {
                 AddSourceSheet(store: sourceStore,
                                prefilled: engine.sourceToAdd?.absoluteString ?? "")
             }
-            .onAppear(perform: readStoredBuilds)
+            .onAppear {
+                refreshCertificate()
+                refreshStored()
+            }
+            .onChange(of: certManager.certs.count) { _, _ in refreshCertificate() }
+            .onChange(of: certManager.isSignedIn) { _, _ in refreshCertificate() }
         }
     }
 
@@ -285,8 +293,8 @@ struct ToolsView: View {
         var signing: [ToolEntry] = [
             ToolEntry(id: "certificates",
                       title: L("Certificates"),
-                      detail: certificateDetail.text,
-                      detailTint: certificateDetail.tint,
+                      detail: certificate.text,
+                      detailTint: certificate.tint,
                       image: "CertsLogo",
                       destination: .certificates),
             ToolEntry(id: "entitlements",
@@ -380,20 +388,26 @@ struct ToolsView: View {
     // MARK: Status lines
 
     /// The signing certificate's state, which is the one thing on this page that
-    /// changes on its own.
-    private var certificateDetail: (text: String, tint: Color?) {
-        guard !certManager.certs.isEmpty else {
-            return (L("None yet — sign in to see them"), .orange)
+    /// changes on its own. Parsed and formatted here, once per change, rather
+    /// than inside a body that runs on every keystroke in the search field.
+    @MainActor
+    private func refreshCertificate() {
+        let certs = certManager.certs
+        guard !certs.isEmpty else {
+            certificate = (L("None yet — sign in to see them"), .orange)
+            return
         }
-        let signing = certManager.certs.first { $0.signing == true } ?? certManager.certs[0]
-        if let date = signing.expiresAt {
-            let soon = date.timeIntervalSinceNow < 14 * 24 * 60 * 60
-            return (date.timeIntervalSinceNow < 0
-                    ? L("Expired %@", date.formatted(date: .abbreviated, time: .omitted))
-                    : L("Signing certificate expires %@", date.formatted(date: .abbreviated, time: .omitted)),
-                    soon ? .orange : nil)
+        let signing = certs.first { $0.signing == true } ?? certs[0]
+        guard let date = signing.expiresAt else {
+            certificate = (L("%d certificate(s)", certs.count), nil)
+            return
         }
-        return (L("%d certificate(s)", certManager.certs.count), nil)
+        let soon = date.timeIntervalSinceNow < 14 * 24 * 60 * 60
+        certificate = (date.timeIntervalSinceNow < 0
+                       ? L("Expired %@", date.formatted(date: .abbreviated, time: .omitted))
+                       : L("Signing certificate expires %@",
+                           date.formatted(date: .abbreviated, time: .omitted)),
+                       soon ? .orange : nil)
     }
 
     private var storedDetail: String {
@@ -404,10 +418,13 @@ struct ToolsView: View {
 
     /// A directory listing, so it's read when the page appears and after a
     /// return from a page that can delete a copy.
-    private func readStoredBuilds() {
-        let all = IPACache.all()
-        storedCount = all.count
-        storedBytes = all.reduce(Int64(0)) { $0 + $1.bytes }
+    @MainActor
+    private func refreshStored() {
+        Task {
+            let all = await IPACache.load()
+            storedCount = all.count
+            storedBytes = all.reduce(Int64(0)) { $0 + $1.bytes }
+        }
     }
 
     // MARK: Rows

@@ -286,20 +286,26 @@ struct StorageSettingsView: View {
         }
         .navigationTitle(L("Storage"))
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear { items = StorageReport.items() }
+        // Four directory walks, including every cached app icon: measured off
+        // the main actor so opening Storage can't freeze the sheet.
+        .onAppear { Task { await measure() } }
         .confirmationDialog(L("Clear this data?"),
                             isPresented: Binding(get: { pendingClear != nil },
                                                  set: { if !$0 { pendingClear = nil } }),
                             presenting: pendingClear) { item in
             Button(L("Clear %@", item.name), role: .destructive) {
                 StorageReport.clear(item)
-                items = StorageReport.items()
                 pendingClear = nil
+                Task { await measure() }
             }
             Button(L("Cancel"), role: .cancel) { pendingClear = nil }
         } message: { item in
             Text(L("%@ (%@) is deleted. It's rebuilt the next time it's needed.", item.name, item.sizeText))
         }
+    }
+
+    private func measure() async {
+        items = await Task.detached(priority: .utility) { StorageReport.items() }.value
     }
 }
 

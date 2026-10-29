@@ -354,14 +354,24 @@ private struct QRCodeView: View {
 
     private static let context = CIContext()
 
+    /// Drawn once per address, off the main actor: Core Image in a body is
+    /// work on every redraw for an image that never changes.
+    @State private var image: UIImage?
+
     var body: some View {
-        if let image = Self.render(text) {
-            Image(uiImage: image)
-                .interpolation(.none)
-                .resizable()
-                .scaledToFit()
-                .padding(12)
-                .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(.white))
+        Group {
+            if let image {
+                Image(uiImage: image)
+                    .interpolation(.none)
+                    .resizable()
+                    .scaledToFit()
+                    .padding(12)
+                    .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(.white))
+            }
+        }
+        .task(id: text) {
+            guard image == nil else { return }
+            image = await Task.detached(priority: .utility) { Self.render(text) }.value
         }
     }
 

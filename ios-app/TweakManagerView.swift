@@ -17,6 +17,9 @@ struct TweakManagerView: View {
         let build: IPACache.Cached
         let libraries: [String]
         let injected: Bool
+        /// False when the executable couldn't be read, which is not the same as
+        /// an executable that links nothing.
+        var readable = true
 
         var id: String { build.bundleID }
         /// The names that could be removed: `.dylib` leaves only.
@@ -104,7 +107,11 @@ struct TweakManagerView: View {
                     }
                     Spacer(minLength: 0)
                 }
-                if item.libraries.isEmpty {
+                if !item.readable {
+                    Text(L("The executable couldn't be read, so its libraries are unknown."))
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                } else if item.libraries.isEmpty {
                     Text(L("Links nothing but Apple's frameworks."))
                         .font(.caption)
                         .foregroundStyle(.tertiary)
@@ -141,9 +148,10 @@ struct TweakManagerView: View {
     private func load() async {
         guard items.isEmpty else { return }
         isReading = true
-        let builds = IPACache.all()
         let read = await Task.detached(priority: .userInitiated) { () -> [Stored] in
-            builds.compactMap { build -> Stored? in
+            // The folder listing belongs here too: this runs off the main actor.
+            let builds = IPACache.all()
+            return builds.compactMap { build -> Stored? in
                 guard let archive = IPALibrary.archiveFiles(at: build.url),
                       let app = archive.first(where: {
                           $0.path.hasSuffix("/Info.plist") && $0.path.contains("Payload/")
@@ -158,9 +166,12 @@ struct TweakManagerView: View {
                 // concatenation, the predicate and the call together.
                 let binaryPath = bundle + "/" + executable
                 guard let file = archive.first(where: { $0.path == binaryPath }) else { return nil }
-                guard let binary = IPALibrary.contents(of: file, in: build.url)
-                else { return nil }
-                let libraries = MachOInject.tweakLibraries(in: binary)
+                // The load commands are at the head of the binary: a bounded
+                // read is all this needs, and a 90 MB executable stops being a
+                // 90 MB allocation per build.
+                guard let head = IPALibrary.prefix(of: file, in: build.url, limit: 8 << 20)
+                else { return Stored(build: build, libraries: [], injected: false, readable: false) }
+                let libraries = MachOInject.tweakLibraries(in: head)
                 return Stored(build: build, libraries: libraries, injected: !libraries.isEmpty)
             }
         }.value

@@ -92,6 +92,12 @@ enum IPACache {
         try? FileManager.default.removeItem(at: nameFile(for: bundleID))
     }
 
+    /// Every cached build, read off the main actor: listing the folder and
+    /// stat-ing each file is disk work a SwiftUI body must not do.
+    static func load() async -> [Cached] {
+        await Task.detached(priority: .userInitiated) { all() }.value
+    }
+
     static func totalBytes() -> Int64 {
         all().reduce(0) { $0 + $1.bytes }
     }

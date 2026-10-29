@@ -13,6 +13,10 @@ struct InstallHistoryView: View {
 
     @State private var showSettings = false
     @State private var pendingClear = false
+    /// Which entries still have their copy, checked once per appearance instead
+    /// of once per row per body — with 200 rows that was 200 file checks a
+    /// redraw.
+    @State private var onDisk: Set<UUID> = []
 
     var body: some View {
         ScrollView {
@@ -68,16 +72,33 @@ struct InstallHistoryView: View {
         } message: {
             Text(L("The list goes; the stored builds stay on disk."))
         }
+        .onAppear(perform: checkDisk)
+        .onChange(of: history.entries.count) { _, _ in checkDisk() }
+    }
+
+    /// Existence checks are file-system work: done once, off the main actor,
+    /// for the whole list.
+    @MainActor
+    private func checkDisk() {
+        let entries = history.entries
+        Task {
+            let present = await Task.detached(priority: .utility) { () -> Set<UUID> in
+                var found = Set<UUID>()
+                for entry in entries where entry.cachedURL != nil { found.insert(entry.id) }
+                return found
+            }.value
+            onDisk = present
+        }
     }
 
     private func row(_ entry: InstallHistory.Entry) -> some View {
-        let cached = entry.cachedURL
+        let isOnDisk = onDisk.contains(entry.id)
         return PanelCard {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(alignment: .top, spacing: 10) {
-                    Image(systemName: cached != nil ? "shippingbox.fill" : "clock")
+                    Image(systemName: isOnDisk ? "shippingbox.fill" : "clock")
                         .font(.title3)
-                        .foregroundStyle(cached != nil ? AnyShapeStyle(Theme.brand) : AnyShapeStyle(.secondary))
+                        .foregroundStyle(isOnDisk ? AnyShapeStyle(Theme.brand) : AnyShapeStyle(.secondary))
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: 6) {
                             Text(entry.name)
@@ -104,10 +125,10 @@ struct InstallHistoryView: View {
                     }
                     Spacer(minLength: 0)
                 }
-                if let cached {
+                if isOnDisk {
                     Button {
                         Haptics.tap()
-                        engine.installLocalIPA(at: cached)
+                        if let url = entry.cachedURL { engine.installLocalIPA(at: url) }
                     } label: {
                         Label(L("Install this build again"), systemImage: "arrow.uturn.backward")
                             .font(.footnote.weight(.semibold))

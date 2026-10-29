@@ -10,6 +10,10 @@ struct IPACacheView: View {
     @EnvironmentObject private var engine: Engine
 
     @State private var entries: [IPACache.Cached] = []
+    /// Summed from `entries` rather than re-scanning the folder: the header used
+    /// to call `IPACache.totalBytes()` on every redraw, which listed and stat-ed
+    /// the whole cache each time.
+    @State private var totalBytes: Int64 = 0
     @State private var pendingDelete: IPACache.Cached?
     @State private var showSettings = false
 
@@ -36,15 +40,15 @@ struct IPACacheView: View {
         .background(AppBackground())
         .toolbar { settingsToolbarItem(isPresented: $showSettings) }
         .sheet(isPresented: $showSettings) { SettingsView() }
-        .onAppear { entries = IPACache.all() }
+        .onAppear { Task { await load() } }
         .confirmationDialog(L("Delete this copy?"),
                             isPresented: Binding(get: { pendingDelete != nil },
                                                  set: { if !$0 { pendingDelete = nil } }),
                             presenting: pendingDelete) { entry in
             Button(L("Delete %@", entry.displayName), role: .destructive) {
                 IPACache.remove(entry.bundleID)
-                entries = IPACache.all()
                 pendingDelete = nil
+                Task { await load() }
             }
             Button(L("Cancel"), role: .cancel) { pendingDelete = nil }
         } message: { entry in
@@ -55,11 +59,20 @@ struct IPACacheView: View {
     private var header: some View {
         BrandHeader(icon: "internaldrive.fill", title: L("Stored builds")) {
             if !entries.isEmpty {
-                StatusPill(text: ByteCountFormatter.string(fromByteCount: IPACache.totalBytes(),
+                StatusPill(text: ByteCountFormatter.string(fromByteCount: totalBytes,
                                                            countStyle: .file),
                            systemImage: "shippingbox.fill", color: Theme.accent2)
             }
         }
+    }
+
+    /// The folder, read off the main actor, and its size taken from what was
+    /// read rather than from a second pass.
+    @MainActor
+    private func load() async {
+        let all = await IPACache.load()
+        entries = all
+        totalBytes = all.reduce(Int64(0)) { $0 + $1.bytes }
     }
 
     private var emptyCard: some View {
@@ -149,6 +162,10 @@ struct DeviceInfoView: View {
 
     @State private var showSettings = false
     @State private var detail: Engine.DeviceDetail?
+    /// The storage card, measured once when the page appears instead of on every
+    /// redraw — the container walk below takes seconds on a full device.
+    @State private var storageRows: [(String, String)] = []
+    @State private var measuringStorage = false
 
     var body: some View {
         ScrollView {
@@ -178,6 +195,14 @@ struct DeviceInfoView: View {
                         ForEach(storageRows, id: \.0) { pair in
                             row(pair.0, pair.1)
                         }
+                        if measuringStorage {
+                            HStack(spacing: 8) {
+                                ProgressView().controlSize(.small)
+                                Text(L("Measuring…"))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
                     }
                 }
                 .cascadeItem(2)
@@ -199,31 +224,43 @@ struct DeviceInfoView: View {
         .background(AppBackground())
         .toolbar { settingsToolbarItem(isPresented: $showSettings) }
         .sheet(isPresented: $showSettings) { SettingsView() }
-        .onAppear {
-            if let summary = engine.deviceSummary { _ = summary }
-        }
+        .onAppear(perform: measureStorage)
     }
 
-    private var storageRows: [(String, String)] {
-        let values = (try? URL(fileURLWithPath: NSHomeDirectory())
-            .resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey,
-                                      .volumeTotalCapacityKey]))
-        var rows: [(String, String)] = []
-        if let free = values?.volumeAvailableCapacityForImportantUsage {
-            rows.append((L("Free"), ByteCountFormatter.string(fromByteCount: free, countStyle: .file)))
-        }
-        if let total = values?.volumeTotalCapacity {
-            rows.append((L("Total"), ByteCountFormatter.string(fromByteCount: Int64(total), countStyle: .file)))
-        }
-        rows.append((L("Stored builds"), ByteCountFormatter.string(fromByteCount: IPACache.totalBytes(),
-                                                                  countStyle: .file)))
-        rows.append((L("App container"), containerSize))
-        return rows
-    }
+    /// Volume figures and the container's size, measured off the main actor.
+    /// `StorageReport.size` walks every file in the app container, documents
+    /// and caches included, so it is the one number on this page that must never
+    /// be computed in a body.
+    @MainActor
+    private func measureStorage() {
+        guard !measuringStorage else { return }
+        measuringStorage = true
+        Task {
+            let facts = await Task.detached(priority: .utility) { () -> StorageFacts in
+                let home = URL(fileURLWithPath: NSHomeDirectory())
+                let values = try? home.resourceValues(
+                    forKeys: [.volumeAvailableCapacityForImportantUsageKey, .volumeTotalCapacityKey])
+                return StorageFacts(
+                    free: values?.volumeAvailableCapacityForImportantUsage,
+                    total: values?.volumeTotalCapacity.map(Int64.init),
+                    container: StorageReport.size(of: home),
+                    stored: IPACache.totalBytes())
+            }.value
 
-    private var containerSize: String {
-        let bytes = StorageReport.size(of: URL(fileURLWithPath: NSHomeDirectory()))
-        return ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+            var rows: [(String, String)] = []
+            if let free = facts.free {
+                rows.append((L("Free"), ByteCountFormatter.string(fromByteCount: free, countStyle: .file)))
+            }
+            if let total = facts.total {
+                rows.append((L("Total"), ByteCountFormatter.string(fromByteCount: total, countStyle: .file)))
+            }
+            rows.append((L("Stored builds"),
+                         ByteCountFormatter.string(fromByteCount: facts.stored, countStyle: .file)))
+            rows.append((L("App container"),
+                         ByteCountFormatter.string(fromByteCount: facts.container, countStyle: .file)))
+            storageRows = rows
+            measuringStorage = false
+        }
     }
 
     private func row(_ label: String, _ value: String) -> some View {
@@ -248,4 +285,13 @@ struct DeviceInfoView: View {
             engine.log("Device details: \(error.localizedDescription)")
         }
     }
+}
+
+
+/// What the storage card needs, carried back from the background.
+private struct StorageFacts {
+    let free: Int64?
+    let total: Int64?
+    let container: Int64
+    let stored: Int64
 }
