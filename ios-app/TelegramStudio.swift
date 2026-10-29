@@ -240,6 +240,45 @@ final class TelegramStudio: ObservableObject {
         }
     }
 
+    // MARK: - The account's channel list
+
+    /// What the last whole-account export listed.
+    @Published private(set) var discovery: TelegramDiscovery.Account?
+
+    /// Reads a full Telegram Desktop export and keeps the channel list it
+    /// carries. Returns a message on failure, nil when it worked.
+    func scanAccount(_ json: URL) -> String? {
+        do {
+            let account = try TelegramDiscovery.read(json)
+            discovery = account
+            scanNote = L("Found %ld channel(s) in the export, %ld of them with .ipa files.",
+                         account.found.count, account.found.filter { $0.ipaCount > 0 }.count)
+            return nil
+        } catch {
+            return (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+        }
+    }
+
+    /// Adds the discovered channels that have a public handle — the only ones
+    /// this app can read without an account. Returns added and skipped counts.
+    @discardableResult
+    func addDiscovered(_ items: [TelegramDiscovery.Found]) -> (added: Int, skipped: Int) {
+        var added = 0
+        var skipped = 0
+        for item in items {
+            guard let handle = item.handle, !handle.isEmpty else {
+                skipped += 1
+                continue
+            }
+            if add(handle) == nil { added += 1 } else { skipped += 1 }
+        }
+        if added > 0 {
+            scanNote = L("Added %ld channel(s) from the export; %ld kept out.", added, skipped)
+        }
+        discovery = nil
+        return (added, skipped)
+    }
+
     func removeImport(_ id: String) {
         imports.removeAll { $0.id == id }
     }

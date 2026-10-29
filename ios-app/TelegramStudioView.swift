@@ -24,6 +24,10 @@ struct TelegramStudioView: View {
     @State private var showCredentials = false
     @State private var showExportPicker = false
     @State private var importError: String?
+    /// The whole-account export: its picker, its error, and its sheet.
+    @State private var showDiscoveryPicker = false
+    @State private var showDiscovery = false
+    @State private var discoveryError: String?
 
     var body: some View {
         NavigationStack {
@@ -31,6 +35,7 @@ struct TelegramStudioView: View {
                 LazyVStack(spacing: 18) {
                     accountCard
                     addCard
+                    discoveryCard
                     channelCard
                     scanCard
                     exportCard
@@ -56,6 +61,21 @@ struct TelegramStudioView: View {
             .sheet(isPresented: $showAccountInfo) { accountExplanation }
             .sheet(isPresented: $showCredentials) {
                 TelegramCredentialsView().environmentObject(loc)
+            }
+            .sheet(isPresented: $showDiscoveryPicker) {
+                FileImporterRepresentableView(allowedContentTypes: [.json]) { urls in
+                    guard let url = urls.first else { return }
+                    let scoped = url.startAccessingSecurityScopedResource()
+                    defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                    discoveryError = studio.scanAccount(url)
+                    if discoveryError == nil { showDiscovery = true }
+                }
+                .ignoresSafeArea()
+            }
+            .sheet(isPresented: $showDiscovery) {
+                if let account = studio.discovery {
+                    TelegramDiscoverySheet(account: account, studio: studio)
+                }
             }
             .sheet(isPresented: $showExportPicker) {
                 FileImporterRepresentableView(allowedContentTypes: [.json]) { urls in
@@ -228,7 +248,55 @@ struct TelegramStudioView: View {
                         .font(.caption)
                         .foregroundStyle(.orange)
                 }
-                Text(L("Listing the channels your own account has joined needs a signed-in Telegram client. These are public channels with IPA content, checked when this list was written."))
+                Text(L("The list above is public channels with IPA content, checked when it was written. For your own account's channels, use Scan my whole Telegram below — it reads them out of a Telegram Desktop export."))
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    // MARK: Whole account
+
+    /// The account's own channel list, from a full Telegram Desktop export.
+    private var discoveryCard: some View {
+        PanelCard {
+            VStack(alignment: .leading, spacing: 10) {
+                Label(L("Scan my whole Telegram"), systemImage: "person.crop.circle.badge.magnifyingglass")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Text(L("Telegram Desktop › Settings › Advanced › Export Telegram data, tick “include everything”, JSON. Pick the result.json here and every channel your account is in is listed — with how many .ipa files each carries — so they can be added in one go."))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button {
+                    showDiscoveryPicker = true
+                } label: {
+                    Label(L("Choose the account's result.json"), systemImage: "doc.badge.plus")
+                        .font(.footnote.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+
+                if let discoveryError {
+                    Text(discoveryError)
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if let account = studio.discovery {
+                    HStack(spacing: 8) {
+                        Text(L("%ld channel(s) found", account.found.count))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button(L("Review")) { showDiscovery = true }
+                            .font(.caption.weight(.semibold))
+                            .buttonStyle(.borderless)
+                            .foregroundStyle(Theme.accent2)
+                    }
+                }
+                Text(L("Only channels with a public @handle can be read from here without an account; the rest are listed so the list is complete."))
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -672,6 +740,134 @@ struct TelegramCredentialsView: View {
                     apiID = String(existing.apiID)
                     apiHash = existing.apiHash
                 }
+            }
+        }
+    }
+}
+
+
+/// The channels a whole-account export listed, with the ones worth adding
+/// picked already: public, and carrying `.ipa` files.
+private struct TelegramDiscoverySheet: View {
+    let account: TelegramDiscovery.Account
+    @ObservedObject var studio: TelegramStudio
+
+    @EnvironmentObject private var loc: Localizer
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var picked: Set<String>
+
+    init(account: TelegramDiscovery.Account, studio: TelegramStudio) {
+        self.account = account
+        _studio = ObservedObject(wrappedValue: studio)
+        _picked = State(initialValue: Set(account.found
+            .filter { $0.isAddable && $0.ipaCount > 0 }
+            .map(\.id)))
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                LazyVStack(spacing: 10) {
+                    SummaryLine(account: account, picked: picked.count).cascadeItem(0)
+                    ForEach(account.found) { channel in
+                        row(channel)
+                        Divider().opacity(0.12).padding(.leading, 34)
+                    }
+                }
+                .padding(20)
+                .pageColumn()
+            }
+            .background(AppBackground())
+            .navigationTitle(L("Channels found"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(L("Done")) { dismiss() }
+                }
+            }
+            .safeAreaInset(edge: .bottom) {
+                VStack(spacing: 6) {
+                    Button {
+                        studio.addDiscovered(account.found.filter { picked.contains($0.id) })
+                        dismiss()
+                    } label: {
+                        Text(picked.isEmpty ? L("Nothing picked") : L("Add %ld channel(s)", picked.count))
+                    }
+                    .buttonStyle(PrimaryButtonStyle())
+                    .disabled(picked.isEmpty)
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 10)
+                .background(.ultraThinMaterial)
+            }
+        }
+    }
+
+    private func row(_ channel: TelegramDiscovery.Found) -> some View {
+        let already = channel.handle.map { studio.contains($0) } ?? false
+        return Button {
+            guard channel.isAddable, !already else { return }
+            if picked.contains(channel.id) { picked.remove(channel.id) }
+            else { picked.insert(channel.id) }
+        } label: {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: channel.isAddable
+                      ? (picked.contains(channel.id) ? "checkmark.circle.fill" : "circle")
+                      : "lock.circle")
+                    .font(.footnote)
+                    .foregroundStyle(channel.isAddable
+                                     ? (picked.contains(channel.id) ? Theme.accent2 : Color.secondary)
+                                     : Color.secondary.opacity(0.5))
+                    .padding(.top, 2)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(channel.title)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    HStack(spacing: 5) {
+                        Text(channel.handle.map { "@" + $0 } ?? L("no public handle"))
+                            .lineLimit(1)
+                        if channel.ipaCount > 0 {
+                            Text("·")
+                            Text(L("%ld .ipa", channel.ipaCount))
+                        }
+                        if already {
+                            Text("·")
+                            Text(L("added"))
+                                .foregroundStyle(.green)
+                        }
+                    }
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                }
+                Spacer(minLength: 4)
+                Text(channel.kind.replacingOccurrences(of: "_", with: " "))
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct SummaryLine: View {
+    let account: TelegramDiscovery.Account
+    let picked: Int
+
+    var body: some View {
+        PanelCard {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(account.title)
+                    .font(.headline)
+                Text(L("%ld channel(s) · %ld with .ipa files · %ld chosen",
+                       account.found.count,
+                       account.found.filter { $0.ipaCount > 0 }.count,
+                       picked))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
     }

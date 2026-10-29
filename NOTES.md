@@ -1894,3 +1894,16 @@ bounds what it allocates.
   covers success, failure and cancellation without three call sites drifting, and it's what makes
   back-to-back installs safe — the second app can't inherit the first one's bundle ID, capability
   edits or injected dylibs. `reset()` deliberately leaves injectors alone.
+
+### Telegram: listing an account's channels without an account
+
+- **There is no MTProto client in this build**, so "every channel I'm in" can't be asked of
+  Telegram directly. The full desktop export already answers it: `result.json` carries
+  `chats.list` (every dialog, with `username` for public channels) and `messages` tagged with
+  `peer_id`. `TelegramDiscovery` joins the two — `.ipa` counts per peer — and the studio offers the
+  result as a list.
+- **Peer ids arrive in two shapes** (`channel123456` and `123456`); both are reduced to digits so the
+  join works. A single-chat export has no chat list and falls back to the JSON's own name.
+- **Only public handles are addable**: without one there's no `t.me/s/` preview to read, and no
+  account to read it with. Those channels stay in the list, marked, rather than being hidden — a
+  list that silently drops half the account is worse than one that explains itself.
