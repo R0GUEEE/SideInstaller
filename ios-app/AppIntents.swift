@@ -52,7 +52,7 @@ struct QueueInstallIntent: AppIntent {
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
         guard let target = Engine.downloadLink(link.absoluteString) else {
-            throw ValidationError("That isn't a link to an .ipa file.")
+            return .result(dialog: IntentDialog("That isn't a link to an .ipa file."))
         }
         let added = await InstallQueue.shared.add(name: target.lastPathComponent,
                                                   url: target)

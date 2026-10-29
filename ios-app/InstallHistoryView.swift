@@ -77,7 +77,7 @@ struct InstallHistoryView: View {
                 HStack(alignment: .top, spacing: 10) {
                     Image(systemName: cached != nil ? "shippingbox.fill" : "clock")
                         .font(.title3)
-                        .foregroundStyle(cached != nil ? Theme.brand : .secondary)
+                        .foregroundStyle(cached != nil ? AnyShapeStyle(Theme.brand) : AnyShapeStyle(Color.secondary))
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: 6) {
                             Text(entry.name)
