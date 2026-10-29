@@ -4,6 +4,21 @@ All notable changes to SideInstaller are documented here.
 
 ## Unreleased
 
+### Changed
+- **A marketplace download lands in the install menu instead of installing itself.** Both the row's
+  download button and the app page's primary button now fetch the release and hand it to the Install
+  tab as the custom build, so its name, capabilities and tweaks can be set before signing. The
+  install-all-updates path is unchanged; it still installs what it finds.
+- **Downloads: a library of the `.ipa` files on this iPhone.** The icon at the trailing end of the
+  marketplace's search bar opens it — everything downloaded or imported, with **Configure** (hand it
+  to the install menu) and **Install** (sign and install now) per file, share and delete.
+- **My Apps opens with the title above the search field.** The field was `.searchable`, which lives
+  in the navigation bar, so the header sat below it with a gap; it's a field in the page now, under
+  the header and directly above the list. Rows also fall back to the source's icon artwork when the
+  device's own icon hasn't been read yet, instead of showing a letter.
+- **Marketplace rows are all the same length.** The per-row version menu is always present (disabled
+  for a single release) instead of making rows with several releases wider than the rest.
+
 ### Added
 - **Free in-app purchases, as one switch in the tweak section.** Signing configuration › Tweaks now
   carries a **Free in-app purchases** toggle that adds the three bundled patches together:

@@ -847,7 +847,11 @@ struct AppsView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 14) {
+                // The title sits above the search field now: with `.searchable`
+                // the field is pushed up into the navigation bar and the header
+                // ended up *below* it, with a gap before the list.
                 header.cascadeItem(0)
+                searchField.cascadeItem(1)
                 jitCard
                 refreshRunCard
                 // Errors show as a popup, which `RootView` lays over the app.
@@ -865,7 +869,7 @@ struct AppsView: View {
             .animation(.smooth(duration: 0.35), value: manager.refreshable)
         }
         .background(AppBackground())
-        .searchable(text: $search, prompt: Text(L("Search installed apps")))
+        .scrollDismissesKeyboard(.interactively)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 updatesToolbarButton
@@ -936,6 +940,28 @@ struct AppsView: View {
                     .transition(.opacity.combined(with: .scale(scale: 0.85, anchor: .top)))
             }
         }
+    }
+
+    /// The search field, in the page rather than in the navigation bar so the
+    /// title can sit above it.
+    private var searchField: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.secondary)
+            TextField(L("Search installed apps"), text: $search)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.done)
+            if !search.isEmpty {
+                Button { search = "" } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .fieldBackground()
     }
 
     // MARK: Toolbar actions
@@ -1513,21 +1539,28 @@ struct AppsView: View {
     private func icon(for status: SideloadedAppStatus) -> some View {
         let side: CGFloat = 48
         if let image = manager.icon(for: status.app.bundleID) {
-            Image(uiImage: image)
+            return AnyView(Image(uiImage: image)
                 .resizable()
                 .scaledToFill()
                 .frame(width: side, height: side)
-                .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-        } else {
-            ZStack {
-                RoundedRectangle(cornerRadius: 11, style: .continuous)
-                    .fill(Theme.brand)
-                Text(String(status.app.name.prefix(1)).uppercased())
-                    .font(.title3.weight(.bold))
-                    .foregroundStyle(.white)
-            }
-            .frame(width: side, height: side)
+                .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous)))
         }
+        // The device's own icon needs a read over the link; a source's icon is
+        // an https URL and can be drawn at once. Better a real icon now than a
+        // letter until the next device read.
+        if let entry = sources.entries.first(where: { $0.id == status.app.bundleID }),
+           entry.iconURL != nil {
+            return AnyView(SourceIcon(url: entry.iconURL, side: side,
+                                      fallback: "app.fill", corner: 11))
+        }
+        return AnyView(ZStack {
+            RoundedRectangle(cornerRadius: 11, style: .continuous)
+                .fill(Theme.brand)
+            Text(String(status.app.name.prefix(1)).uppercased())
+                .font(.title3.weight(.bold))
+                .foregroundStyle(.white)
+        }
+        .frame(width: side, height: side))
     }
 
     /// The one line that matters: how long is left, and the date it runs out.

@@ -3182,6 +3182,17 @@ final class Engine: ObservableObject {
     /// ID's certificate. Used by the Inspect page's Install button and by a
     /// source's app page.
     @MainActor
+    /// Downloads a build and leaves it in the install menu instead of running
+    /// it: the marketplace hands off here so an app can be configured — name,
+    /// capabilities, tweaks — before it's signed.
+    func prepareLinkedIPA(_ url: URL) {
+        guard !isRunning, !isImportingIPA else { return }
+        lastError = nil
+        Task { @MainActor in
+            _ = await self.importCustomIPA(fromLink: url.absoluteString)
+        }
+    }
+
     func installLocalIPA(at url: URL, then run: Bool = true) {
         guard !isRunning, !isImportingIPA else { return }
         lastError = nil

@@ -116,6 +116,8 @@ struct MarketplaceView: View {
     @State private var selected: MarketEntry?
     @State private var showAdd = false
     @State private var showManageSources = false
+    /// The downloads library sheet, opened from the search bar's trailing icon.
+    @State private var showDownloads = false
 
     var body: some View {
         NavigationStack {
@@ -139,6 +141,7 @@ struct MarketplaceView: View {
             }
             .sheet(isPresented: $showAdd) { AddSourceSheet(store: store) }
             .sheet(isPresented: $showManageSources) { SourceManagerView(store: store) }
+            .sheet(isPresented: $showDownloads) { DownloadsLibraryView() }
             .onAppear {
                 store.load()
                 syncFromStore()
@@ -297,6 +300,21 @@ struct MarketplaceView: View {
                     .foregroundStyle(Theme.accent2)
                     .frame(width: 28, height: 28)
             }
+
+            Rectangle()
+                .fill(Color.primary.opacity(0.10))
+                .frame(width: 1, height: 18)
+
+            // The downloads library: what is already on disk, with the choice to
+            // configure a build before installing it.
+            Button { showDownloads = true } label: {
+                Image(systemName: "tray.and.arrow.down.fill")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Theme.accent2)
+                    .frame(width: 28, height: 28)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(L("Downloads"))
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
@@ -381,29 +399,31 @@ struct MarketplaceView: View {
                                 .buttonStyle(.plain)
                                 .disabled(app.latest?.link == nil || engine.isRunning)
 
-                                if app.versions.count > 1 {
-                                    Menu {
-                                        ForEach(app.versions) { version in
-                                            Button {
-                                                install(app, version: version)
-                                            } label: {
-                                                Text(versionLabel(version))
-                                            }
+                                // Always present, so every row's card is the same
+                                // length: a row with one release just has a
+                                // disabled chevron instead of a gap.
+                                Menu {
+                                    ForEach(app.versions) { version in
+                                        Button {
+                                            install(app, version: version)
+                                        } label: {
+                                            Text(versionLabel(version))
                                         }
-                                    } label: {
-                                        Image(systemName: "chevron.down.circle")
-                                            .font(.title3)
-                                            .foregroundStyle(.secondary)
                                     }
-                                    .buttonStyle(.plain)
+                                } label: {
+                                    Image(systemName: "chevron.down.circle")
+                                        .font(.title3)
+                                        .foregroundStyle(.secondary)
                                 }
+                                .buttonStyle(.plain)
+                                .disabled(app.versions.count <= 1 || app.latest?.link == nil)
                             }
                             .padding(.trailing, 2)
                             .contextMenu {
                                 Button {
                                     install(app)
                                 } label: {
-                                    Label(L("Install newest"), systemImage: "square.and.arrow.down")
+                                    Label(L("Download to Install"), systemImage: "square.and.arrow.down")
                                 }
                                 Button {
                                     if let url = app.latest?.link {
@@ -563,9 +583,11 @@ struct MarketplaceView: View {
         return parts.joined(separator: " · ")
     }
 
+    /// Hands a release to the install menu instead of installing it: the app can
+    /// be renamed, given capabilities or tweaks, or simply looked at first.
     private func install(_ app: MarketEntry, version: MarketEntry.Version? = nil) {
         guard let picked = app.release(version), let url = picked.link else { return }
-        engine.installLinkedIPA(url)
+        engine.prepareLinkedIPA(url)
     }
 }
 
@@ -749,14 +771,14 @@ struct MergerAppView: View {
                 Button {
                     guard let picked, let url = picked.link else { return }
                     if picked.direct {
-                        engine.installLinkedIPA(url)
+                        engine.prepareLinkedIPA(url)
                     } else {
                         UIApplication.shared.open(url)
                     }
                 } label: {
                     Label(picked?.direct == false
                           ? L("Open in Telegram")
-                          : L("Install %@", picked?.version ?? L("newest")),
+                          : L("Download %@ to Install", picked?.version ?? L("newest")),
                           systemImage: picked?.direct == false
                           ? "arrow.up.forward.app" : "square.and.arrow.down")
                         .frame(maxWidth: .infinity)
