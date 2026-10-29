@@ -591,10 +591,27 @@ enum IPAPatch {
             let header = localHeader(name: entry.name, method: entry.method, crc: entry.crc,
                                      compressed: entry.compressedSize,
                                      uncompressed: entry.uncompressedSize)
-            guard (try? source.seek(toOffset: UInt64(dataOffset))) != nil,
-                  let compressed = try? source.read(upToCount: entry.compressedSize),
-                  compressed.count == entry.compressedSize
-            else { throw PatchError.corrupt(entry.name) }
+
+            // A member with no payload has nothing to read, and asking for zero
+            // bytes is not a harmless no-op: `read(upToCount: 0)` hands back no
+            // data on some Foundation versions, which the guard below reports as a
+            // damaged archive. It is not damaged -- the member is simply empty.
+            //
+            // This is not a corner case in practice: a Python standard library
+            // carries dozens of zero-byte `__init__.py` files, and every one of
+            // them stopped a 130 MB .ipa from being prepared at the first such
+            // entry, with a message that blamed the archive.
+            let compressed: Data
+            if entry.compressedSize == 0 {
+                compressed = Data()
+            } else {
+                guard (try? source.seek(toOffset: UInt64(dataOffset))) != nil,
+                      let data = try? source.read(upToCount: entry.compressedSize),
+                      data.count == entry.compressedSize
+                else { throw PatchError.corrupt(entry.name) }
+                compressed = data
+            }
+
             try write(header)
             try write(compressed)
             // A data descriptor in the original is dropped with the flags bit
