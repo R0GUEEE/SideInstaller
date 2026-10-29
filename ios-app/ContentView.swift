@@ -602,7 +602,8 @@ struct ContentView: View {
                     Spacer(minLength: 6)
                     Text(signingSummary)
                         .font(.caption2)
-                        .foregroundStyle(appConfig.config.summary.isEmpty ? .tertiary : Theme.accent2)
+                        .foregroundStyle(appConfig.config.summary.isEmpty
+                             ? AnyShapeStyle(.tertiary) : AnyShapeStyle(Theme.accent2))
                         .lineLimit(1)
                     Image(systemName: "chevron.down")
                         .font(.caption2.weight(.semibold))
