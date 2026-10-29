@@ -12,10 +12,8 @@ struct InstallSigningPanel: View {
     @State private var showAppConfig = false
     @State private var showBrowser = false
     @State private var showLibrary = false
-    @State private var pendingInjectorKind: TweakInjectorKind?
     /// What the in-app-purchase switch last did.
     @State private var iapNote: String?
-    @State private var showInjectorImporter = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -24,19 +22,10 @@ struct InstallSigningPanel: View {
             capabilities
             libraries
             tweaks
-            injectors
         }
         .sheet(isPresented: $showAppConfig) { AppConfigView() }
         .sheet(isPresented: $showBrowser) { TweakBrowserView(store: config) }
         .sheet(isPresented: $showLibrary) { TweakLibraryView() }
-        .sheet(isPresented: $showInjectorImporter) {
-            FileImporterRepresentableView(allowedContentTypes: [.dylib]) { urls in
-                guard let kind = pendingInjectorKind, let url = urls.first else { return }
-                _ = config.addInjector(kind, from: url)
-                pendingInjectorKind = nil
-            }
-            .ignoresSafeArea()
-        }
     }
 
     // MARK: Identity
@@ -168,6 +157,7 @@ struct InstallSigningPanel: View {
     private var tweaks: some View {
         VStack(alignment: .leading, spacing: 8) {
             group(L("Tweaks"), systemImage: "syringe")
+            injectionChoices
             purchaseSwitch
             if config.config.tweaks.isEmpty {
                 Text(L("A .dylib or .deb added here is unpacked into the app's Frameworks folder and loaded by its main executable."))
@@ -215,6 +205,56 @@ struct InstallSigningPanel: View {
                 .padding(.vertical, 2)
             }
         }
+    }
+
+    /// How a library is named and where it goes: the pair the injector uses for
+    /// every tweak added from here on, and rewrites for the ones already added.
+    private var injectionChoices: some View {
+        HStack(spacing: 8) {
+            injectionMenu(title: L("Path"),
+                          value: config.config.injectionBaseKind.title,
+                          options: InjectionBase.allCases.map { base in
+                              (base.title, { config.setInjectionBase(base) })
+                          })
+            injectionMenu(title: L("Folder"),
+                          value: config.config.injectionFolderKind.title,
+                          options: InjectionFolder.allCases.map { folder in
+                              (folder.title, { config.setInjectionFolder(folder) })
+                          })
+            Spacer(minLength: 0)
+        }
+    }
+
+    private func injectionMenu(title: String, value: String,
+                               options: [(String, () -> Void)]) -> some View {
+        Menu {
+            ForEach(Array(options.enumerated()), id: \.offset) { _, option in
+                Button(option.0, action: option.1)
+            }
+        } label: {
+            HStack(spacing: 5) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    Text(value)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                }
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.primary.opacity(0.06)))
+            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.08)))
+            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
     }
 
     /// The one switch for the three bundled in-app-purchase patches. It adds
@@ -272,72 +312,6 @@ struct InstallSigningPanel: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.vertical, 4)
-    }
-
-    // MARK: Injectors
-
-    private var injectors: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            group(L("Injection frameworks"), systemImage: "arrow.down.to.line")
-            ForEach(TweakInjectorKind.allCases) { kind in
-                HStack(spacing: 8) {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(kind.title)
-                            .font(.caption.weight(.semibold))
-                        if let installed = config.injector(for: kind) {
-                            Text(installed.fileName)
-                                .font(.caption2.monospaced())
-                                .foregroundStyle(.tertiary)
-                                .lineLimit(1)
-                        } else if let status = config.injectorStatus[kind] {
-                            Text(status)
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        } else {
-                            Text(L("Not added"))
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
-                        }
-                    }
-                    Spacer(minLength: 6)
-                    if config.injector(for: kind) != nil {
-                        Button(role: .destructive) {
-                            config.removeInjector(kind)
-                        } label: {
-                            Image(systemName: "trash").font(.caption)
-                        }
-                        .buttonStyle(.borderless)
-                    } else {
-                        Button {
-                            Task { await config.downloadInjector(kind) }
-                        } label: {
-                            Image(systemName: "arrow.down.circle").font(.footnote)
-                        }
-                        .buttonStyle(.borderless)
-                        .accessibilityLabel(L("Download %@", kind.title))
-                        Button {
-                            pendingInjectorKind = kind
-                            showInjectorImporter = true
-                        } label: {
-                            Image(systemName: "folder.badge.plus").font(.footnote)
-                        }
-                        .buttonStyle(.borderless)
-                        .accessibilityLabel(L("Add %@ from a file", kind.title))
-                    }
-                }
-                .padding(.vertical, 2)
-            }
-            if !config.missingInjectors.isEmpty {
-                Text(L("Needed by an added tweak: %@.", config.missingInjectors.map(\.title).joined(separator: ", ")))
-                    .font(.caption2)
-                    .foregroundStyle(.orange)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Text(L("ElleKit and Substitute can be downloaded; CydiaSubstrate and libhooker are closed, so they're added from a copy you have. A tweak that names one in its dependencies gets it loaded beside it."))
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
     }
 
     private func group(_ title: String, systemImage: String) -> some View {

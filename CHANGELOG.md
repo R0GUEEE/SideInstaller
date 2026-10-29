@@ -5,6 +5,15 @@ All notable changes to SideInstaller are documented here.
 ## Unreleased
 
 ### Changed
+- **Injection frameworks live in Tweak storage now.** The loader list — ElleKit, Substitute,
+  CydiaSubstrate, libhooker, with download / add-from-file / remove — moved out of the install
+  menu's tweak section into **Tools › Tweak storage**, beside the libraries they load. A loader is
+  part of the toolkit, not part of one build, so adding it once serves every install that needs it.
+- **The tweak section has path and folder selectors.** Two menus under **Tweaks** choose how an
+  injected library is named — `@executable_path` or `@rpath` — and where it's copied —
+  `/Frameworks/` or `/` — defaulting to `@executable_path` and `/Frameworks/`. Changing either
+  rewrites the load path of every tweak already added, so the list and the load commands stay in
+  step instead of drifting.
 - **Adding a tweak sets it up the way injection expects.** Every injected library is loaded from
   `@executable_path/Frameworks/<library>` — the folder the build actually gets — and treated as
   optional (`LC_LOAD_WEAK_DYLIB`) by default, for `.dylib` files and `.deb` packages alike; a

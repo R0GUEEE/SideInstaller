@@ -98,13 +98,6 @@ struct Tweak: Codable, Identifiable, Equatable {
 
     var isDeb: Bool { kind == .deb }
 
-    /// Where an injected library is loaded from: the app's own `Frameworks`
-    /// folder, beside the executable. Stated once here so every path that adds a
-    /// tweak agrees, and so the UI can show what it will be.
-    static func defaultLoadPath(for library: String) -> String {
-        "@executable_path/Frameworks/\(library)"
-    }
-
     /// What the list shows beside the name: `1.4` for a package, nothing for a
     /// bare library.
     var versionText: String? {
@@ -210,9 +203,25 @@ struct AppConfig: Codable, Equatable {
     /// and apply — whatever the build being installed says, so importing another
     /// app never carries the last one's name and version along.
     var pinnedIdentity: [String] = []
+    /// How libraries are named and where they're put. Optional so a saved
+    /// configuration from before the choice existed still decodes.
+    var injectionBase: InjectionBase?
+    var injectionFolder: InjectionFolder?
     /// Bumped when the shape changes, so old saved configurations are ignored
     /// rather than decoded wrong.
     var schema = 3
+
+    var injectionBaseKind: InjectionBase { injectionBase ?? .executablePath }
+    var injectionFolderKind: InjectionFolder { injectionFolder ?? .frameworks }
+
+    /// The load path a library gets under the current choice: the same folder
+    /// the injector copies it into.
+    func injectionPath(for library: String) -> String {
+        switch injectionFolderKind {
+        case .frameworks: return "\(injectionBaseKind.rawValue)/Frameworks/\(library)"
+        case .root:       return "\(injectionBaseKind.rawValue)/\(library)"
+        }
+    }
 
     func isPinned(_ field: IdentityField) -> Bool {
         pinnedIdentity.contains(field.rawValue)
@@ -419,6 +428,24 @@ extension AppConfigStore {
     }
 }
 
+/// How an injected library is named in the executable's load command.
+enum InjectionBase: String, CaseIterable, Identifiable, Codable {
+    case executablePath = "@executable_path"
+    case rpath = "@rpath"
+
+    var id: String { rawValue }
+    var title: String { rawValue }
+}
+
+/// Which folder inside the app a library is copied to.
+enum InjectionFolder: String, CaseIterable, Identifiable, Codable {
+    case frameworks = "Frameworks"
+    case root = "/"
+
+    var id: String { rawValue }
+    var title: String { self == .frameworks ? L("/Frameworks/") : L("/") }
+}
+
 /// The app-wide configuration, kept in Application Support next to the tweaks
 /// and injector libraries it points at.
 final class AppConfigStore: ObservableObject {
@@ -516,7 +543,7 @@ final class AppConfigStore: ObservableObject {
                     config.tweaks.append(Tweak(name: package.name ?? name,
                                                path: stored.path,
                                                kind: .deb,
-                                               loadPath: Tweak.defaultLoadPath(for: libraryName),
+                                               loadPath: config.injectionPath(for: libraryName),
                                                weak: previous?.weak ?? true,
                                                requiresInjector: package.requiredInjector
                                                    ?? TweakInjectorKind.detected(inLibraries: linked),
@@ -530,7 +557,7 @@ final class AppConfigStore: ObservableObject {
                         .map { MachOInject.linkedLibraries(in: $0) } ?? []
                     config.tweaks.removeAll { $0.path == stored.path }
                     config.tweaks.append(Tweak(name: name, path: stored.path, kind: .dylib,
-                                               loadPath: Tweak.defaultLoadPath(for: name),
+                                               loadPath: config.injectionPath(for: name),
                                                weak: true,
                                                requiresInjector: TweakInjectorKind.detected(inLibraries: linked)))
                 }
@@ -574,6 +601,26 @@ final class AppConfigStore: ObservableObject {
     func setLoadPath(_ path: String, for id: UUID) {
         guard let index = config.tweaks.firstIndex(where: { $0.id == id }) else { return }
         config.tweaks[index].loadPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Changes how libraries are named, and rewrites the ones already added so
+    /// the list and the load commands stay in step.
+    func setInjectionBase(_ base: InjectionBase) {
+        config.injectionBase = base
+        rewriteLoadPaths()
+    }
+
+    func setInjectionFolder(_ folder: InjectionFolder) {
+        config.injectionFolder = folder
+        rewriteLoadPaths()
+    }
+
+    private func rewriteLoadPaths() {
+        for index in config.tweaks.indices {
+            let library = (config.tweaks[index].loadPath as NSString).lastPathComponent
+            let fallback = (config.tweaks[index].path as NSString).deletingPathExtension
+            config.tweaks[index].loadPath = config.injectionPath(for: library.isEmpty ? fallback : library)
+        }
     }
 
     /// Records the injector a package expects, for libraries whose dependency

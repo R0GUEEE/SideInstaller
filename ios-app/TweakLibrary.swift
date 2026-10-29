@@ -167,6 +167,9 @@ struct TweakLibraryView: View {
     @State private var showNewBundle = false
     @State private var note: String?
     @State private var pendingDelete: StoredTweak?
+    /// The injector whose file picker is up, and whether it is.
+    @State private var pendingInjectorKind: TweakInjectorKind?
+    @State private var showInjectorImporter = false
     @State private var pendingBundleDelete: TweakBundle?
 
     var body: some View {
@@ -192,6 +195,7 @@ struct TweakLibraryView: View {
                 addCard.cascadeItem(2)
                 itemsCard.cascadeItem(3)
                 bundlesCard.cascadeItem(4)
+                injectorsCard.cascadeItem(5)
                 Text(L("A tweak added here is copied into the app configuration when you apply it, so the same file can be used by more than one build. Bundles are just names for a set: applying one adds every file it holds."))
                     .font(.caption)
                     .foregroundStyle(.tertiary)
@@ -215,6 +219,14 @@ struct TweakLibraryView: View {
         }
         .sheet(isPresented: $showNewBundle) {
             NewBundleSheet(library: library)
+        }
+        .sheet(isPresented: $showInjectorImporter) {
+            FileImporterRepresentableView(allowedContentTypes: [.dylib]) { urls in
+                guard let kind = pendingInjectorKind, let url = urls.first else { return }
+                _ = config.addInjector(kind, from: url)
+                pendingInjectorKind = nil
+            }
+            .ignoresSafeArea()
         }
         .confirmationDialog(L("Delete this tweak?"),
                             isPresented: Binding(get: { pendingDelete != nil },
@@ -362,6 +374,88 @@ struct TweakLibraryView: View {
         .padding(.vertical, 3)
     }
 
+    // MARK: Injection frameworks
+
+    /// The loaders a tweak hooks through. They live here rather than in the
+    /// install menu because they're part of the toolkit, not part of one build:
+    /// adding ElleKit once serves every install that needs it.
+    private var injectorsCard: some View {
+        PanelCard {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(L("Injection frameworks"))
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                ForEach(TweakInjectorKind.allCases) { kind in
+                    Divider().opacity(0.12)
+                    injectorRow(kind)
+                }
+                if !config.missingInjectors.isEmpty {
+                    Text(L("Needed by an added tweak: %@.",
+                           config.missingInjectors.map(\.title).joined(separator: ", ")))
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Text(L("ElleKit and Substitute can be downloaded; CydiaSubstrate and libhooker are closed, so they're added from a copy you have. A tweak that names one in its dependencies gets it loaded beside it."))
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func injectorRow(_ kind: TweakInjectorKind) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "arrow.down.to.line")
+                .font(.caption2)
+                .foregroundStyle(Theme.accent2)
+                .frame(width: 18)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(kind.title)
+                    .font(.caption.weight(.semibold))
+                if let installed = config.injector(for: kind) {
+                    Text(installed.fileName)
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                } else if let status = config.injectorStatus[kind] {
+                    Text(status)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text(L("Not added"))
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            Spacer(minLength: 6)
+            if config.injector(for: kind) != nil {
+                Button(role: .destructive) {
+                    config.removeInjector(kind)
+                } label: {
+                    Image(systemName: "trash").font(.caption)
+                }
+                .buttonStyle(.borderless)
+            } else {
+                Button {
+                    Task { await config.downloadInjector(kind) }
+                } label: {
+                    Image(systemName: "arrow.down.circle").font(.footnote)
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel(L("Download %@", kind.title))
+                Button {
+                    pendingInjectorKind = kind
+                    showInjectorImporter = true
+                } label: {
+                    Image(systemName: "folder.badge.plus").font(.footnote)
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel(L("Add %@ from a file", kind.title))
+            }
+        }
+        .padding(.vertical, 3)
+    }
     // MARK: Bundles
 
     @ViewBuilder
