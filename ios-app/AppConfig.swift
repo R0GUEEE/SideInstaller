@@ -87,8 +87,38 @@ struct Tweak: Codable, Identifiable, Equatable {
     var weak = false
     /// The injector the package says it needs, worked out when it was added.
     var requiresInjector: TweakInjectorKind?
+    /// The package's own identifier, when it came out of a `.deb` — what makes
+    /// "is there a newer release?" a question that can be answered.
+    var identifier: String?
+    /// The package version it was added at.
+    var version: String?
+    /// The repository it came from, when it was added from the browser, so the
+    /// update check asks the repository that published it first.
+    var repository: String?
 
     var isDeb: Bool { kind == .deb }
+
+    /// What the list shows beside the name: `1.4` for a package, nothing for a
+    /// bare library.
+    var versionText: String? {
+        guard let version, !version.isEmpty else { return nil }
+        return version
+    }
+
+    /// The repository's host, for a caption: `havoc.app` rather than a URL.
+    var repositoryHost: String? {
+        guard let repository, let host = URL(string: repository)?.host else { return nil }
+        return host
+    }
+
+    /// How a repository package is recognised in the configuration: its
+    /// identifier when it has one, otherwise the file name.
+    func matches(fileName: String, identifier: String?) -> Bool {
+        if let mine = self.identifier, !mine.isEmpty, let identifier, !identifier.isEmpty {
+            return mine == identifier
+        }
+        return (path as NSString).lastPathComponent.lowercased() == fileName.lowercased()
+    }
 }
 
 /// One addition to a plist: a top-level key, its type, and its value.
@@ -295,9 +325,15 @@ final class AppConfigStore: ObservableObject {
     // MARK: - Tweaks
 
     /// Adds picked `.dylib` or `.deb` files. A `.deb` is read once here, so its
-    /// package name and required injector can be shown before it's installed.
+    /// package name and required injector can be shown before it's installed,
+    /// and it replaces an earlier copy of the same package rather than sitting
+    /// beside it: two builds of one tweak loaded together is never what anyone
+    /// meant.
+    ///
+    /// `repository` is the repository a package came from, when the browser is
+    /// the one adding it.
     @discardableResult
-    func addTweaks(_ urls: [URL]) -> (added: Int, failed: [String]) {
+    func addTweaks(_ urls: [URL], repository: String? = nil) -> (added: Int, failed: [String]) {
         var added = 0
         var failed: [String] = []
         for url in urls {
@@ -316,13 +352,26 @@ final class AppConfigStore: ObservableObject {
                     let linked = package.libraries.flatMap {
                         MachOInject.linkedLibraries(in: $0.data)
                     }
+                    // The build it replaces, so its "load only if present"
+                    // choice and its repository survive the swap.
+                    let previous = package.identifier.flatMap { identifier in
+                        config.tweaks.first { $0.identifier == identifier && $0.isDeb }
+                    }
+                    if let previous {
+                        try? FileManager.default.removeItem(atPath: previous.path)
+                        config.tweaks.removeAll { $0.id == previous.id }
+                    }
                     config.tweaks.removeAll { $0.path == stored.path }
                     config.tweaks.append(Tweak(name: package.name ?? name,
                                                path: stored.path,
                                                kind: .deb,
                                                loadPath: "",
+                                               weak: previous?.weak ?? false,
                                                requiresInjector: package.requiredInjector
-                                                   ?? TweakInjectorKind.detected(inLibraries: linked)))
+                                                   ?? TweakInjectorKind.detected(inLibraries: linked),
+                                               identifier: package.identifier,
+                                               version: package.version,
+                                               repository: repository ?? previous?.repository))
                 } else {
                     // A bare library has no control file, so its links are the
                     // only clue to what it needs.

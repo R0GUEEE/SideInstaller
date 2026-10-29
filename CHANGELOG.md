@@ -5,6 +5,17 @@ All notable changes to SideInstaller are documented here.
 ## Unreleased
 
 ### Added
+- **Tweaks know what they are, and when there's a newer one.** A package added from a repository —
+  or a `.deb` picked in Files — now records its package identifier, version and where it came from.
+  The tweak list shows `1.4 · havoc.app`, and when a repository has a newer release its row offers
+  **Update to 1.6**: the build downloads and replaces the old one in place, keeping the "optional"
+  choice. The browser marks every package as new, up to date or updatable, and a package's page says
+  which version is installed before you tap.
+- **Adding a package replaces its earlier build** rather than loading two copies of one tweak. A
+  tweak added before this change has no version on record, so it's shown but never offered an
+  update it can't compare.
+
+### Added
 - **A tweak browser.** **App configuration › Tweaks & injectors › Browse** (also **Tools › Tweak
   browser**) reads any Sileo/Cydia repository — Havoc and Chariz are there to start with — and adds a
   package straight to the configuration: search by name, identifier, developer or section, tap a

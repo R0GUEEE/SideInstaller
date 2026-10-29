@@ -118,6 +118,19 @@ enum TweakRepoParser {
         return nil
     }
 
+    /// True when `candidate` is a newer package version than `current`.
+    ///
+    /// The order is Debian's for the numbered versions repositories actually
+    /// publish (`1.0.10` after `1.0.9`); the one place it differs is `~`, which
+    /// Debian sorts before an empty string (`1.0~beta` < `1.0`) and this treats
+    /// as punctuation. A pre-release that relies on the tilde (`1.0~beta`) can
+    /// therefore read as newer than its own release, so the update it offers is
+    /// a downgrade; every other ordering is Debian's.
+    static func isNewer(_ candidate: String, than current: String) -> Bool {
+        guard !candidate.isEmpty, !current.isEmpty else { return false }
+        return compare(candidate, current) == .orderedDescending
+    }
+
     private static func stanzas(in text: String) -> [[String: String]] {
         let normalized = text.contains("\r\n")
             ? text.replacingOccurrences(of: "\r\n", with: "\n")

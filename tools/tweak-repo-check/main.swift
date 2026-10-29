@@ -78,6 +78,21 @@ enum TweakRepoStoreURL {
     }
 }
 
+// The update badge is only as good as this ordering: a release must read
+// newer than what's installed, and nothing must read newer than itself.
+let ordering: [(candidate: String, current: String, newer: Bool)] = [
+    ("1.6", "1.5", true),
+    ("1.5", "1.6", false),
+    ("1.0.10", "1.0.9", true),
+    ("1.0", "1.0", false),
+    ("0.9.5000", "0.9.4999", true),
+    ("", "1.0", false),
+    ("1.4", "", false),
+]
+for case_ in ordering where TweakRepoParser.isNewer(case_.candidate, than: case_.current) != case_.newer {
+    fail("version order: \(case_.candidate) vs \(case_.current) should be \(case_.newer)")
+}
+
 var total = 0
 for path in CommandLine.arguments.dropFirst() {
     total += check(path)

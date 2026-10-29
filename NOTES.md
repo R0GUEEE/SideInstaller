@@ -1712,3 +1712,27 @@ weakly in their callbacks.
   (ElleKit / Substrate / libhooker / Substitute) when it names one, and the configuration page says
   when that framework isn't added; the rest of the dependencies (preference bundles, libraries like
   AppList) are not installed, because there is no jailbreak for them to be installed into.
+
+### Tweak updates: identity, not file names
+
+- **A `.deb`'s file name is not its identity.** `Foo_1.4_iphoneos-arm64.deb` becomes
+  `Foo_1.6_iphoneos-arm64.deb`, so a "is this already added?" check by name goes blind exactly when
+  it matters. `Tweak` now keeps the control file's `Package:` and `Version:` (and the repository it
+  came from), and `addTweaks` replaces by identifier: the old file is deleted, the new one recorded,
+  and `weak` / repository carry over.
+- **Legacy tweaks are left alone.** A tweak added before this change has no identifier or version.
+  Matching still falls back to the file name so it reads as "already added" in the browser, but
+  `TweakRepoStore.update(for:)` requires a recorded version — an unknown current version would make
+  every release look newer, and an update badge that's always on is noise, not information.
+- **The update check is a cache read, never a network call.** `update(for:)` looks in the indexes
+  already on disk, so drawing the tweak list costs nothing; the browser's Refresh (or opening it) is
+  what actually refetches. That also means a fresh launch with no index yet shows no badges until
+  something reads a repository, which is honest — nothing has been compared.
+- **Ordering is Debian's `compare(options: .numeric)`**, with one deliberate difference: `~` sorts as
+  punctuation, so `1.0~beta` reads as newer than `1.0` rather than older. Repositories that ship
+  pre-releases this way would otherwise never offer the final release. `tools/tweak-repo-check`
+  asserts the orderings the badge depends on (`1.0.10` > `1.0.9`, nothing > itself) on every change.
+- **Same swap path as adding.** The update button downloads through `TweakRepoStore.file(for:)`
+  (SHA-256 verified when the index publishes one) and calls `TweakPackageInstaller.add`, which is
+  `addTweaks`. The browser and the configuration page therefore can't disagree about what an update
+  produces — they call the same two functions.

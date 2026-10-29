@@ -130,6 +130,36 @@ final class TweakRepoStore: ObservableObject {
         }
     }
 
+    // MARK: - Updates
+
+    /// The release a configured tweak could move to, when a repository here
+    /// carries a newer version of it.
+    ///
+    /// Only packages whose identifier was recorded are considered: a bare
+    /// `.dylib` has no version to compare, and a tweak added before identifiers
+    /// were kept has none either, so it is left alone rather than nagged about.
+    @MainActor
+    func update(for tweak: Tweak) -> RepoPackage? {
+        guard tweak.isDeb,
+              let identifier = tweak.identifier, !identifier.isEmpty,
+              let current = tweak.version, !current.isEmpty
+        else { return nil }
+
+        func newest(in repo: TweakRepository) -> RepoPackage? {
+            packages[repo.id]?.first { $0.identifier == identifier }
+        }
+
+        // The repository it came from first; then, if that one no longer has
+        // it, any repository that does.
+        let preferred = tweak.repository.flatMap { origin in
+            repos.first { $0.url.caseInsensitiveCompare(origin) == .orderedSame }
+        }
+        var ordered = repos.filter { $0.id != preferred?.id }
+        if let preferred { ordered.insert(preferred, at: 0) }
+        return ordered.compactMap(newest(in:))
+            .first { TweakRepoParser.isNewer($0.version, than: current) }
+    }
+
     // MARK: - Downloading
 
     /// Downloads a package's `.deb` to a temporary file and checks it against
@@ -328,5 +358,31 @@ enum RepoError: LocalizedError {
         case .checksum:
             return L("The download doesn't match the checksum the repository published, so it was discarded.")
         }
+    }
+}
+
+/// Downloads a package and hands the `.deb` to the configuration, which is the
+/// only place that decides what a package contributes.
+enum TweakPackageInstaller {
+
+    /// Adds the package's library to the configuration, replacing the build of
+    /// the same package that's already there. Returns false when the download
+    /// was fine but there was nothing injectable in it.
+    @discardableResult
+    @MainActor
+    static func add(_ package: RepoPackage, to store: AppConfigStore) async throws -> Bool {
+        let repository = TweakRepoStore.shared.repo(package.repoID)?.url
+        let file = try await TweakRepoStore.shared.file(for: package)
+        defer { try? FileManager.default.removeItem(at: file) }
+        return store.addTweaks([file], repository: repository).added == 1
+    }
+}
+
+extension AppConfigStore {
+    /// The copy of a repository package that's in the configuration: by package
+    /// identifier when both sides have one, otherwise by the `.deb`'s name, so
+    /// a tweak added before identifiers were kept is still recognised.
+    func installedTweak(for package: RepoPackage) -> Tweak? {
+        config.tweaks.first { $0.matches(fileName: package.fileName, identifier: package.identifier) }
     }
 }

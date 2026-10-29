@@ -132,6 +132,12 @@ encrypted App Store copy is refused instead of using up an App ID.
 opens: every package the repositories you add publish, searchable by name, bundle identifier,
 developer or section, with each repository's index kept on the device so the list is there offline.
 
+What a package says about itself is kept: its identifier, its version and the repository it came
+from. The tweak list then reads `1.4 · havoc.app`, and when that repository publishes a newer release
+the row offers **Update to 1.6** — downloaded, checksum-checked and swapped in, keeping the
+"optional" choice. The browser itself marks a package as new, already added, or updatable, and
+replacing a package replaces its earlier build instead of loading two copies of the same tweak.
+
 A package is added the way a `.deb` picked from Files is — its libraries are taken out and loaded by
 the app at launch — and nothing is installed to the system or to another app. The download is
 checked against the index's SHA-256 when the repository publishes one, and a package built for
@@ -152,7 +158,8 @@ is prepared the same way each time.
   entitlement written into the app's archived entitlements file (the profile your Apple ID issues
   still decides what's actually granted).
 - **Extensions** — switch off individual extensions, or remove them all, and drop the Watch app.
-- **Tweaks** — add `.dylib` files or `.deb` packages, or pick one out of a repository with
+- **Tweaks** — add `.dylib` files or `.deb` packages (each packaged tweak keeps its identifier and
+  version, so a newer release can be offered), or pick one out of a repository with
   **Browse**: any Sileo/Cydia repository (Havoc and Chariz are there to start with) is read and
   searched by name, identifier, developer or section, and a package's dependencies are shown before
   it's added. A package is unpacked and the libraries it

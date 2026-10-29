@@ -23,6 +23,9 @@ struct AppConfigView: View {
     /// one, never SideInstaller itself.
     @EnvironmentObject private var engine: Engine
     @ObservedObject private var store = AppConfigStore.shared
+    /// Observed so a repository index finishing its read can light up the
+    /// update buttons in the tweak list.
+    @ObservedObject private var repos = TweakRepoStore.shared
     @Environment(\.dismiss) private var dismiss
 
     @State private var showTweakPicker = false
@@ -30,6 +33,8 @@ struct AppConfigView: View {
     @State private var showConfigImporter = false
     @State private var note: String?
     @State private var injectedFor: TweakInjectorKind?
+    /// The tweak whose update is downloading, so its row can show it.
+    @State private var updatingTweak: UUID?
 
     /// What the imported archive says, read once when the page opens.
     @State private var snapshot = Snapshot()
@@ -691,6 +696,31 @@ struct AppConfigView: View {
 
     // MARK: Tweaks and injectors
 
+    /// Downloads a repository's newer release and swaps it for the copy in the
+    /// configuration. `addTweaks` replaces by package identifier, so this is the
+    /// same path adding one takes.
+    @MainActor
+    private func download(_ package: RepoPackage, for tweak: Tweak) {
+        guard updatingTweak == nil else { return }
+        updatingTweak = tweak.id
+        Task {
+            defer { updatingTweak = nil }
+            do {
+                let added = try await TweakPackageInstaller.add(package, to: store)
+                if added {
+                    Haptics.success()
+                    note = L("Updated %@ to %@.", package.name, package.version)
+                } else {
+                    Haptics.warning()
+                    note = L("%@ was downloaded, but nothing in it can be injected.", package.name)
+                }
+            } catch {
+                Haptics.warning()
+                note = error.localizedDescription
+            }
+        }
+    }
+
     private var tweaksCard: some View {
         PanelCard {
             VStack(alignment: .leading, spacing: 14) {
@@ -743,6 +773,19 @@ struct AppConfigView: View {
                             Text(tweak.isDeb ? L(".deb package") : L(".dylib"))
                                 .font(.caption2)
                                 .foregroundStyle(.tertiary)
+                            if let version = tweak.versionText {
+                                Text(version)
+                                    .font(.caption2.monospaced())
+                                    .foregroundStyle(.tertiary)
+                            }
+                            if let host = tweak.repositoryHost {
+                                Text("·")
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
+                                Text(host)
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
+                            }
                             if let kind = tweak.requiresInjector {
                                 Text(store.injector(for: kind) == nil
                                      ? L("needs %@ (not added)", kind.title)
@@ -750,6 +793,27 @@ struct AppConfigView: View {
                                     .font(.caption2)
                                     .foregroundStyle(store.injector(for: kind) == nil ? .orange : .secondary)
                             }
+                        }
+                        // Only for a package that came from a repository: a bare
+                        // .dylib has no version to compare, and a tweak added
+                        // before versions were kept has none either.
+                        if let update = repos.update(for: tweak) {
+                            HStack(spacing: 8) {
+                                if updatingTweak == tweak.id {
+                                    ProgressView().controlSize(.mini)
+                                } else {
+                                    Button {
+                                        download(update, for: tweak)
+                                    } label: {
+                                        Label(L("Update to %@", update.version),
+                                              systemImage: "arrow.down.circle")
+                                            .font(.caption.weight(.semibold))
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .foregroundStyle(Theme.accent2)
+                                }
+                            }
+                            .padding(.top, 2)
                         }
                         // The path the executable loads it from. Editable, since
                         // a tweak built for `@rpath` or a framework needs its own.

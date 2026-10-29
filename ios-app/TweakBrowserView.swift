@@ -74,7 +74,7 @@ struct TweakBrowserView: View {
                 TweakPackageDetail(package: package,
                                    repoName: repos.repo(package.repoID)?.name ?? "",
                                    store: store,
-                                   isAdded: isAdded(package))
+                                   installedVersion: installed(package)?.version)
             }
             .confirmationDialog(L("Remove this repository?"),
                                 isPresented: Binding(get: { pendingRemove != nil },
@@ -364,6 +364,11 @@ struct TweakBrowserView: View {
                         Text("·")
                         Text(package.sizeText)
                     }
+                    if let current = installed(package)?.version, hasUpdate(package) {
+                        Text("·")
+                        Text(L("installed %@", current))
+                            .foregroundStyle(Theme.accent2)
+                    }
                 }
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
@@ -407,13 +412,23 @@ struct TweakBrowserView: View {
 
     private func addButton(_ package: RepoPackage) -> some View {
         Group {
-            if isAdded(package) {
+            if adding == package.id {
+                ProgressView().controlSize(.small)
+            } else if hasUpdate(package) {
+                Button {
+                    add(package)
+                } label: {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.title3)
+                        .foregroundStyle(Theme.accent2)
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel(L("Update %@", package.name))
+            } else if installed(package) != nil {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.title3)
                     .foregroundStyle(.green)
                     .accessibilityLabel(L("Already added"))
-            } else if adding == package.id {
-                ProgressView().controlSize(.small)
             } else {
                 Button {
                     add(package)
@@ -431,18 +446,23 @@ struct TweakBrowserView: View {
 
     // MARK: - Actions
 
-    /// Packages whose `.deb` is already in the configuration, by file name —
-    /// the same name `addTweaks` stores it under.
-    private func isAdded(_ package: RepoPackage) -> Bool {
-        let name = package.fileName.lowercased()
-        return store.config.tweaks.contains {
-            ($0.path as NSString).lastPathComponent.lowercased() == name
-        }
+    /// The configuration's copy of a package, if it has one.
+    private func installed(_ package: RepoPackage) -> Tweak? {
+        store.installedTweak(for: package)
+    }
+
+    /// True when the repository's release is newer than the copy the
+    /// configuration holds — the one thing a browser can know that a file
+    /// picker can't.
+    private func hasUpdate(_ package: RepoPackage) -> Bool {
+        guard let current = installed(package)?.version else { return false }
+        return TweakRepoParser.isNewer(package.version, than: current)
     }
 
     @MainActor
     private func add(_ package: RepoPackage) {
         guard adding == nil else { return }
+        let previous = installed(package)?.version
         adding = package.id
         Task {
             defer { adding = nil }
@@ -450,7 +470,11 @@ struct TweakBrowserView: View {
                 let added = try await TweakPackageInstaller.add(package, to: store)
                 if added {
                     Haptics.success()
-                    show(L("Added %@ to the app configuration.", package.name))
+                    if let previous {
+                        show(L("Updated %@ from %@ to %@.", package.name, previous, package.version))
+                    } else {
+                        show(L("Added %@ to the app configuration.", package.name))
+                    }
                 } else {
                     Haptics.warning()
                     show(L("%@ was downloaded, but nothing in it can be injected.", package.name))
@@ -503,8 +527,8 @@ private struct TweakPackageDetail: View {
     let package: RepoPackage
     let repoName: String
     @ObservedObject var store: AppConfigStore
-    /// Whether the `.deb` is already in the configuration when the sheet opens.
-    let isAdded: Bool
+    /// The version in the configuration when the sheet opens, if there is one.
+    let installedVersion: String?
 
     @EnvironmentObject private var loc: Localizer
     @Environment(\.dismiss) private var dismiss
@@ -513,7 +537,14 @@ private struct TweakPackageDetail: View {
     @State private var added = false
     @State private var note: String?
 
-    private var isInConfig: Bool { isAdded || added }
+    private var isInConfig: Bool { added || (installedVersion != nil && !canUpdate) }
+
+    /// A newer release than the copy in the configuration is what the button is
+    /// for, when there is one.
+    private var canUpdate: Bool {
+        guard let installedVersion else { return false }
+        return TweakRepoParser.isNewer(package.version, than: installedVersion)
+    }
 
     var body: some View {
         NavigationStack {
@@ -624,6 +655,9 @@ private struct TweakPackageDetail: View {
                 if !repoName.isEmpty { fact(L("Repository"), repoName) }
                 if !package.section.isEmpty { fact(L("Section"), package.section) }
                 if !package.sizeText.isEmpty { fact(L("Download"), package.sizeText) }
+                if let installedVersion, !added {
+                    fact(L("Installed"), installedVersion)
+                }
             }
         }
     }
@@ -641,6 +675,14 @@ private struct TweakPackageDetail: View {
         }
     }
 
+    private var buttonTitle: String {
+        if isInConfig { return L("In the configuration") }
+        if canUpdate, let installedVersion {
+            return L("Update %@ to %@", installedVersion, package.version)
+        }
+        return L("Add to the configuration")
+    }
+
     private var addButton: some View {
         Button {
             add()
@@ -648,10 +690,14 @@ private struct TweakPackageDetail: View {
             HStack(spacing: 8) {
                 if adding {
                     ProgressView().controlSize(.small).tint(.white)
+                } else if isInConfig {
+                    Image(systemName: "checkmark.circle.fill")
+                } else if canUpdate {
+                    Image(systemName: "arrow.up.circle.fill")
                 } else {
-                    Image(systemName: isInConfig ? "checkmark.circle.fill" : "plus.circle.fill")
+                    Image(systemName: "plus.circle.fill")
                 }
-                Text(isInConfig ? L("In the configuration") : L("Add to the configuration"))
+                Text(buttonTitle)
                     .font(.subheadline.weight(.semibold))
             }
             .frame(maxWidth: .infinity)
@@ -667,12 +713,17 @@ private struct TweakPackageDetail: View {
     @MainActor
     private func add() {
         guard !adding else { return }
+        let previous = installedVersion
         adding = true
         Task {
             defer { adding = false }
             do {
                 let ok = try await TweakPackageInstaller.add(package, to: store)
-                if ok {
+                if ok, let previous, canUpdate {
+                    added = true
+                    Haptics.success()
+                    note = L("Updated from %@. Close this page and it's listed under Tweaks & injectors, ready for the next install.", previous)
+                } else if ok {
                     added = true
                     Haptics.success()
                     note = L("Added. Close this page and it's listed under Tweaks & injectors, ready for the next install.")
@@ -685,20 +736,5 @@ private struct TweakPackageDetail: View {
                 Haptics.warning()
             }
         }
-    }
-}
-
-/// Downloads a package and hands the `.deb` to the configuration, which is the
-/// only place that decides what a package contributes.
-enum TweakPackageInstaller {
-
-    /// Adds the package's library to the configuration. Returns false when the
-    /// download was fine but there was nothing injectable in it.
-    @discardableResult
-    @MainActor
-    static func add(_ package: RepoPackage, to store: AppConfigStore) async throws -> Bool {
-        let file = try await TweakRepoStore.shared.file(for: package)
-        defer { try? FileManager.default.removeItem(at: file) }
-        return store.addTweaks([file]).added == 1
     }
 }
