@@ -199,3 +199,61 @@ final class SourceIconCache {
         cache.setObject(image, forKey: url.absoluteString as NSString)
     }
 }
+
+/// A remote image at its natural aspect ratio, cached like an icon but larger —
+/// for a source's screenshots.
+///
+/// Separate from `SourceIcon` because these are portrait phone shots: the width
+/// is fixed and the height follows, where an icon is square and cropped.
+struct SourceImage: View {
+    let url: URL
+    var side: CGFloat = 220
+    var corner: CGFloat = 14
+
+    @State private var image: UIImage?
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: corner, style: .continuous)
+                .fill(.white.opacity(0.04))
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                ProgressView().controlSize(.small)
+            }
+        }
+        .frame(width: side, height: side * 2.1)
+        .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: corner, style: .continuous)
+            .strokeBorder(.white.opacity(0.08), lineWidth: 1))
+        .task(id: url) { await load() }
+    }
+
+    private func load() async {
+        if let cached = SourceIconCache.shared.image(for: url) {
+            image = cached
+            return
+        }
+        guard let (data, response) = try? await URLSession.shared.data(from: url),
+              (response as? HTTPURLResponse).map({ (200...299).contains($0.statusCode) }) ?? true,
+              data.count < 12 << 20,
+              let decoded = UIImage(data: data) else { return }
+        // Downsample: a full-resolution screenshot in a 220pt frame is wasted
+        // memory, and there can be a dozen of them.
+        let scaled = await downsampled(decoded, width: side * 2)
+        SourceIconCache.shared.store(scaled, for: url)
+        image = scaled
+    }
+
+    private func downsampled(_ image: UIImage, width: CGFloat) async -> UIImage {
+        await Task.detached(priority: .utility) {
+            let scale = min(1, width / max(1, image.size.width))
+            let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+            return UIGraphicsImageRenderer(size: size).image { _ in
+                image.draw(in: CGRect(origin: .zero, size: size))
+            }
+        }.value
+    }
+}

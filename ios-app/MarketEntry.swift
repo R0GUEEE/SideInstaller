@@ -43,6 +43,12 @@ struct MarketEntry: Identifiable, Sendable, Codable {
     var category: String
     /// Newest first.
     var versions: [Version]
+    /// App Store-style screenshots the source publishes, in order.
+    var screenshots: [String] = []
+    /// The release notes for the newest version, when the source gives any.
+    var notes: String?
+
+    var screenshotURLs: [URL] { screenshots.compactMap { URL(string: $0) } }
 
     var latest: Version? { versions.first }
     var iconURL: URL? { URL(string: icon ?? "") }

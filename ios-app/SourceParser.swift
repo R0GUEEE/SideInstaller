@@ -117,6 +117,18 @@ enum SourceParser {
                                        "CFBundleIdentifier", "packageName", "package"])
             ?? name.map { "\(sourceID)#\($0.lowercased())" }
             ?? "\(sourceID)#\(releases[0].id)"
+        // Screenshots are published under a few names; some sources nest them
+        // inside the release rather than the app.
+        let screenshots = strings(dict, ["screenshots", "screenshotURLs", "images", "screenshot"])
+            ?? (dict["versions"] as? [Any])?.last.flatMap { item -> [String]? in
+                guard let version = item as? [String: Any] else { return nil }
+                return strings(version, ["screenshots", "screenshotURLs"])
+            } ?? []
+        let notes = string(dict, ["versionDescription", "changelog", "releaseNotes"])
+            ?? (dict["versions"] as? [Any])?.last.flatMap { item -> String? in
+                guard let version = item as? [String: Any] else { return nil }
+                return string(version, ["localizedDescription", "versionDescription"])
+            }
         return MarketEntry(id: identifier,
                            name: name ?? releases[0].version ?? identifier,
                            developer: string(dict, ["developerName", "dev", "developer", "author", "authorName"]),
@@ -124,7 +136,9 @@ enum SourceParser {
                                                    "description", "information"]),
                            icon: string(dict, ["iconURL", "icon", "image", "iconUrl", "appIcon"]),
                            category: string(dict, ["category", "section", "genre"]) ?? category ?? "",
-                           versions: releases)
+                           versions: releases,
+                           screenshots: screenshots,
+                           notes: notes)
     }
 
     /// A `versions` array when there is one, else the app's own release.
@@ -186,6 +200,17 @@ enum SourceParser {
         if let meta = meta(dict) {
             for key in keys {
                 if let text = meta[key] as? String, !text.isEmpty { return text }
+            }
+        }
+        return nil
+    }
+
+    private static func strings(_ dict: [String: Any], _ keys: [String]) -> [String]? {
+        for key in keys {
+            if let list = dict[key] as? [String], !list.isEmpty { return list }
+            if let list = dict[key] as? [Any] {
+                let cleaned = list.compactMap { $0 as? String }.filter { !$0.isEmpty }
+                if !cleaned.isEmpty { return cleaned }
             }
         }
         return nil

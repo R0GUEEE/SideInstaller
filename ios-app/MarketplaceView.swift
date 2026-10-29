@@ -94,6 +94,8 @@ struct MarketplaceView: View {
     /// What the right-hand side is showing.
     enum Filter: Hashable {
         case all
+        /// Anything published in the last fortnight, newest first.
+        case recent
         case featured
         case category(String)
         case source(String)
@@ -246,6 +248,12 @@ struct MarketplaceView: View {
                     Button { filter = .all } label: {
                         Label(L("Every source"), systemImage: marker((filter ?? .all) == .all))
                     }
+                    Button {
+                        filter = .recent
+                        sort = .newest
+                    } label: {
+                        Label(L("New releases (last 14 days)"), systemImage: marker(isFilter(.recent)))
+                    }
                     if featuredCount > 0 {
                         Button { filter = .featured } label: {
                             Label(L("Featured (%ld)", featuredCount),
@@ -332,6 +340,7 @@ struct MarketplaceView: View {
     private var placeholder: String {
         switch filter ?? .all {
         case .all:              return L("Filter apps")
+        case .recent:           return L("Filter new releases")
         case .featured:         return L("Filter featured")
         case .category(let id): return L("Filter %@", MarketCategory.all.first { $0.id == id }?.title ?? L("apps"))
         case .source(let id):
@@ -495,6 +504,9 @@ struct MarketplaceView: View {
         switch filter ?? .all {
         case .all:
             break
+        case .recent:
+            let cutoff = Date().addingTimeInterval(-14 * 86_400)
+            list = list.filter { ($0.latest?.date ?? .distantPast) > cutoff }
         case .featured:
             list = list.filter { featuredKeys.contains($0.id) }
         case .category(let id):
@@ -578,7 +590,9 @@ struct MergerAppView: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
+                if !app.screenshotURLs.isEmpty { screenshotsCard }
                 releaseCard
+                if let notes = app.notes, !notes.isEmpty, notes != app.subtitle { notesCard(notes) }
                 sourcesCard
                 installCard
             }
@@ -623,6 +637,33 @@ struct MergerAppView: View {
         let newest = app.latest?.version ?? ""
         let newer = (installed.version ?? "0").compare(newest, options: .numeric) == .orderedAscending
         return (installed.version, newer)
+    }
+
+    /// The source's own screenshots, side by side and paging. Only what it
+    /// publishes — nothing is fetched from the App Store.
+    private var screenshotsCard: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 10) {
+                ForEach(app.screenshotURLs, id: \.absoluteString) { url in
+                    SourceImage(url: url, side: 220, corner: 14)
+                }
+            }
+            .padding(.horizontal, 2)
+        }
+    }
+
+    private func notesCard(_ notes: String) -> some View {
+        PanelCard {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(L("What's new"))
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Text(notes)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 
     private var releaseCard: some View {
