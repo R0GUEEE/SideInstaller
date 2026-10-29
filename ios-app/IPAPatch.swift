@@ -132,7 +132,7 @@ enum IPAPatch {
         // The signature the installer writes carries the profile's entitlements,
         // so these are what the build *declares* — the file the signer reads
         // when it looks for an app's own list.
-        if !config.entitlements.isEmpty {
+        if !config.entitlements.isEmpty || config.bypassesSideloadDetection {
             let entitlementsPath = prefix + "archived-expanded-entitlements.xcent"
             var entitlements: [String: Any] = [:]
             if let existing = entries.first(where: { $0.name == entitlementsPath }),
@@ -147,6 +147,12 @@ enum IPAPatch {
                 guard !key.isEmpty else { continue }
                 entitlements[key] = value
                 outcome.applied.append(L("Entitlement: %@", key))
+            }
+            // A development-signed build carries this entitlement; an App Store
+            // one doesn't, and apps check for it.
+            if config.bypassesSideloadDetection {
+                entitlements["get-task-allow"] = false
+                outcome.applied.append(L("Sideload bypass: get-task-allow off"))
             }
             if let data = try? PropertyListSerialization.data(fromPropertyList: entitlements,
                                                              format: .binary, options: 0) {
@@ -179,7 +185,7 @@ enum IPAPatch {
 
         // MARK: Tweaks
         var injected: [String: Data] = [:]
-        if !config.tweaks.isEmpty {
+        if !config.tweaks.isEmpty || config.bypassesSideloadDetection {
             let executableName = (info["CFBundleExecutable"] as? String) ?? app.name
             let executablePath = prefix + executableName
             guard let entry = entries.first(where: { $0.name == executablePath }),
@@ -205,6 +211,17 @@ enum IPAPatch {
                 // The library goes beside any frameworks the app already ships;
                 // `@executable_path/Frameworks` is where iOS apps load from.
                 injected[prefix + "Frameworks/" + library.fileName] = library.data
+            }
+            // The detection strings, blanked in place after the injection so
+            // the load commands and offsets stay exactly as they were.
+            if config.bypassesSideloadDetection {
+                let patched = SideloadGuard.patch(binary)
+                if patched.hits.isEmpty {
+                    outcome.warnings.append(L("Sideload bypass: nothing recognisable was left to blank"))
+                } else {
+                    binary = patched.data
+                    outcome.applied.append(L("Sideload bypass: %@", patched.hits.joined(separator: ", ")))
+                }
             }
             replacements[executablePath] = binary
             replacedModes[executablePath] = entry.externalAttributes

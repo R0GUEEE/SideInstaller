@@ -205,11 +205,18 @@ struct AppConfig: Codable, Equatable {
     var pinnedIdentity: [String] = []
     /// How libraries are named and where they're put. Optional so a saved
     /// configuration from before the choice existed still decodes.
+    /// Nin/auto switch for the sideload-detection patch: nil means "when
+    /// detection was found", true/false is the user's answer.
+    var detectionBypass: Bool?
     var injectionBase: InjectionBase?
     var injectionFolder: InjectionFolder?
     /// Bumped when the shape changes, so old saved configurations are ignored
     /// rather than decoded wrong.
     var schema = 3
+
+    /// True when the patch should run: asked for, or left on automatic and
+    /// something was detected.
+    var bypassesSideloadDetection: Bool { detectionBypass ?? false }
 
     var injectionBaseKind: InjectionBase { injectionBase ?? .executablePath }
     var injectionFolderKind: InjectionFolder { injectionFolder ?? .frameworks }
@@ -258,6 +265,7 @@ struct AppConfig: Codable, Equatable {
             || !version.trimmed.isEmpty || !build.trimmed.isEmpty
             || !plistEdits.isEmpty || !entitlements.isEmpty
             || !disabledExtensions.isEmpty || stripExtensions || stripWatchApp
+            || bypassesSideloadDetection
             || !tweaks.isEmpty
     }
 
@@ -273,6 +281,7 @@ struct AppConfig: Codable, Equatable {
         if stripExtensions { out.append(L("All extensions removed")) }
         if !disabledExtensions.isEmpty { out.append(L("%d extensions removed", disabledExtensions.count)) }
         if stripWatchApp { out.append(L("Watch app removed")) }
+        if bypassesSideloadDetection { out.append(L("Sideload detection bypass")) }
         for tweak in tweaks {
             out.append(tweak.isDeb ? L("Tweak (deb): %@", tweak.name) : L("Tweak: %@", tweak.name))
         }

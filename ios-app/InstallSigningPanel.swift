@@ -8,6 +8,8 @@ struct InstallSigningPanel: View {
     @ObservedObject private var config = AppConfigStore.shared
     @ObservedObject private var library = TweakLibrary.shared
     @EnvironmentObject private var loc: Localizer
+    /// The last import's detection scan.
+    @EnvironmentObject private var engine: Engine
 
     @State private var showAppConfig = false
     @State private var showBrowser = false
@@ -20,6 +22,7 @@ struct InstallSigningPanel: View {
             identity
             plistRows
             capabilities
+            detection
             libraries
             tweaks
         }
@@ -121,6 +124,49 @@ struct InstallSigningPanel: View {
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    // MARK: Sideload detection
+
+    /// On by default when the build looks like it checks, off when it doesn't.
+    /// The scan happens at import, so this is a decision with evidence in front
+    /// of it rather than a guess.
+    private var detection: some View {
+        let report = engine.sideloadFindings
+        let on = config.config.bypassesSideloadDetection
+        return VStack(alignment: .leading, spacing: 8) {
+            group(L("Sideload detection"), systemImage: "shield.lefthalf.filled")
+            Toggle(isOn: Binding(get: { on },
+                                 set: { config.config.detectionBypass = $0 })) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(L("Bypass detection"))
+                        .font(.caption.weight(.semibold))
+                    Text(report == nil
+                         ? L("Pick an .ipa and it's scanned for Cydia, Frida, profile and entitlement checks.")
+                         : (report?.hasPatchable == true
+                            ? L("Found %@ — blanked in the executable.", (report?.markers ?? []).joined(separator: ", "))
+                            : L("Nothing recognisable found in this build.")))
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .toggleStyle(.switch)
+            .controlSize(.mini)
+
+            if on {
+                Text(L("Writes get-task-allow off and empties the detection paths and schemes it can see in the executable. A check that runs on a server, or reads the signature's team ID, still refuses — nothing on this side of the network can change that."))
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if let frameworks = report?.frameworks, !frameworks.isEmpty {
+                Text(L("%@ attests to a server — the bypass won't help there.", frameworks.joined(separator: ", ")))
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 

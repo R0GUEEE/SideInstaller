@@ -323,6 +323,9 @@ final class Engine: ObservableObject {
 
     /// Short human summary of the connected device, e.g. "iPhone · iOS 17.5".
     @Published var deviceSummary: String?
+    /// What the last imported build looked like it checks for sideloading, for
+    /// the signing panel. Nil until an import has been scanned.
+    @Published private(set) var sideloadFindings: SideloadGuard.Report?
 
     /// The connected iPhone's UDID and name, from the lockdown handshake.
     private(set) var deviceUDID: String?
@@ -2610,8 +2613,21 @@ final class Engine: ObservableObject {
         Task.detached(priority: .userInitiated) {
             guard let info = IPAPatch.readInfoPlist(from: ipa) else { return }
             let entitlements = IPAPatch.readEntitlements(from: ipa) ?? [:]
+            let findings = SideloadGuard.scan(ipa)
             await MainActor.run {
                 AppConfigStore.shared.adopt(info: info, entitlements: entitlements)
+                self.sideloadFindings = findings
+                // Automatic: a build that clearly looks for Cydia, Frida or a
+                // profile is given the patch without being asked. The switch in
+                // the panel can still turn it off for this install.
+                let store = AppConfigStore.shared
+                if findings.hasPatchable, store.config.detectionBypass == nil {
+                    store.config.detectionBypass = true
+                    self.log("Sideload detection found (\(findings.markers.joined(separator: ", "))) — bypass on for this install.")
+                }
+                if findings.hasUnpatchable {
+                    self.log("Sideload detection: \(findings.frameworks.joined(separator: ", ")) attests to a server; that can't be patched here.")
+                }
             }
         }
     }
@@ -3191,6 +3207,7 @@ final class Engine: ObservableObject {
             try? FileManager.default.removeItem(at: imported)
         }
         customIPAName = nil
+        sideloadFindings = nil
         downloadedIPAPath = nil
         downloadedSource = nil
         downloadedChannel = nil

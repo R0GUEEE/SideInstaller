@@ -5,6 +5,14 @@ All notable changes to SideInstaller are documented here.
 ## Unreleased
 
 ### Added
+- **Sideload-detection bypass, applied automatically when a build looks like it checks.** Importing an
+  `.ipa` scans its executable for the usual tells — the Cydia path, `cydia://`/`sileo://`,
+  `/var/jb`, `frida`, `substrate`, `embedded.mobileprovision`, `get-task-allow` — and, if it finds
+  any, turns on the patch for that install. The patch writes `get-task-allow` false and empties those
+  strings in place (same length, same offsets, nothing moved). Signing configuration › **Sideload
+  detection** shows what was found and can switch it off; a build that attests through
+  `DeviceCheck`/`AppAttest` is called out, because that check runs on a server and no patch here can
+  answer it.
 - **Background keep-alive, with a page of its own under Tools.** Tools › **Background** turns on
   either of the background modes this app declares: **silent audio** (a playback session looping
   silence — the reliable one) or **location updates** (a low-accuracy session). It's remembered
