@@ -143,23 +143,26 @@ struct TweakManagerView: View {
         isReading = true
         let builds = IPACache.all()
         let read = await Task.detached(priority: .userInitiated) { () -> [Stored] in
-            builds.compactMap { build in
-                guard let archive = IPALibrary.archiveFiles(at: build.url),
-                      let app = archive.first(where: {
-                          $0.path.hasSuffix("/Info.plist") && $0.path.contains("Payload/")
-                      }) else { return nil }
-                let bundle = String(app.path.dropLast("/Info.plist".count))
-                let plist = IPALibrary.contents(of: app, in: build.url)
-                    .flatMap { try? PropertyListSerialization.propertyList(from: $0, format: nil) }
-                    as? [String: Any]
-                let executable = (plist?["CFBundleExecutable"] as? String)
-                    ?? (bundle as NSString).lastPathComponent
-                guard let file = archive.first(where: { $0.path == bundle + "/" + executable }),
-                      let binary = IPALibrary.contents(of: file, in: build.url, max: 64 << 20)
-                else { return nil }
+            var out: [Stored] = []
+            for build in builds {
+                guard let archive = IPALibrary.archiveFiles(at: build.url) else { continue }
+                guard let plistEntry = archive.first(where: {
+                    $0.path.hasSuffix("/Info.plist") && $0.path.contains("Payload/")
+                }) else { continue }
+                let bundlePath: String = String(plistEntry.path.dropLast("/Info.plist".count))
+                guard let raw = IPALibrary.contents(of: plistEntry, in: build.url),
+                      let parsed = try? PropertyListSerialization.propertyList(from: raw, format: nil),
+                      let plist = parsed as? [String: Any] else { continue }
+                let folderName: String = (bundlePath as NSString).lastPathComponent
+                let executable: String = (plist["CFBundleExecutable"] as? String) ?? folderName
+                let binaryPath: String = bundlePath + "/" + executable
+                guard let binaryEntry = archive.first(where: { $0.path == binaryPath }),
+                      let binary = IPALibrary.contents(of: binaryEntry, in: build.url, max: 64 << 20)
+                else { continue }
                 let libraries = IPAPatch.tweakLibraries(in: binary)
-                return Stored(build: build, libraries: libraries, injected: !libraries.isEmpty)
+                out.append(Stored(build: build, libraries: libraries, injected: !libraries.isEmpty))
             }
+            return out
         }.value
         items = read
         isReading = false
@@ -176,7 +179,7 @@ struct TweakManagerView: View {
                 .appendingPathComponent("stripped-\(UUID().uuidString).ipa")
             do {
                 try await Task.detached(priority: .userInitiated) {
-                    try IPAPatch.strip(item, libraries: Set(target), writing: temp)
+                    try IPAPatch.strip(item.build, libraries: Set(target), writing: temp)
                 }.value
                 engine.log("Stripped \(target.count) library(ies) from \(item.build.displayName).")
                 engine.installLocalIPA(at: temp)

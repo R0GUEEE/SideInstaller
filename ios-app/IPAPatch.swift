@@ -699,8 +699,8 @@ enum IPAPatch {
     /// removed, writing the result to `destination`.
     ///
     /// Everything else is copied as its original compressed bytes, so one edit
-    /// costs one re-encode — and the copy is a normal `.ipa` that the installer
-    /// can take straight in.
+    /// costs one re-encode — and the copy is a normal `.ipa` the installer can
+    /// take straight in.
     static func strip(_ build: IPACache.Cached, libraries: Set<String>,
                       writing destination: URL) throws {
         let source = try FileHandle(forReadingFrom: build.url)
@@ -710,7 +710,6 @@ enum IPAPatch {
         let entries = try directory(source, fileSize: size)
         guard let app = mainApp(in: entries) else { throw PatchError.notAnIPA }
 
-        // The executable's name comes from the app's own Info.plist.
         guard let plistEntry = entries.first(where: { $0.name == app.prefix + "Info.plist" }),
               let raw = try contents(of: plistEntry, in: source),
               let plist = try? PropertyListSerialization.propertyList(from: raw, format: nil)
@@ -721,12 +720,11 @@ enum IPAPatch {
 
         guard let binaryEntry = entries.first(where: { $0.name == binaryName }),
               let binary = try contents(of: binaryEntry, in: source),
-              let stripped = stripLibraries(libraries, from: binary)
+              let stripped = MachOInject.stripLibraries(libraries, from: binary)
         else { throw PatchError.write("none of those libraries are linked by \(executable)") }
 
         let output = try Writer(source: source)
-        // Directories have no data; the writer only records files, and the
-        // reader copes with a directory-less archive.
+        // A directory entry carries no data; the writer records files.
         for entry in entries where entry.uncompressedSize > 0 {
             if entry.name == binaryName {
                 try output.add(name: entry.name, data: stripped,
@@ -738,104 +736,6 @@ enum IPAPatch {
         let finished = try output.finish()
         try? FileManager.default.removeItem(at: destination)
         try FileManager.default.moveItem(at: finished, to: destination)
-    }
-
-    /// Removes the load commands for named libraries, for taking a tweak back
-    /// out of a build.
-    ///
-    /// Only the header's command list is rewritten: the commands themselves are
-    /// copied in order, minus the ones named, and `ncmds`/`sizeofcmds` are
-    /// corrected. Nothing is moved, so every segment and symbol offset stays
-    /// valid — the same reason injection works by filling padding.
-    ///
-    /// Returns nil when nothing matched, and throws nothing: a binary without
-    /// padding for the header is impossible here, since the list only shrinks.
-    static func stripLibraries(_ names: Set<String>, from binary: Data) -> Data? {
-        guard !names.isEmpty else { return nil }
-        var bytes = [UInt8](binary)
-        guard bytes.count > 32 else { return nil }
-        let magic = be32(bytes, 0)
-        let bigEndian: Bool
-        let is64: Bool
-        switch magic {
-        case 0xCFFA_EDFE: bigEndian = false; is64 = true
-        case 0xCEFA_EDFE: bigEndian = false; is64 = false
-        case 0xFEED_FACF: bigEndian = true;  is64 = true
-        case 0xFEED_FACE: bigEndian = true;  is64 = false
-        default: return nil
-        }
-        func read32(_ at: Int) -> UInt32 {
-            let value = be32(bytes, at)
-            return bigEndian ? value : value.byteSwapped
-        }
-        func write32(_ value: UInt32, at: Int) {
-            let raw = bigEndian ? value : value.byteSwapped
-            bytes[at] = UInt8((raw >> 24) & 0xFF)
-            bytes[at + 1] = UInt8((raw >> 16) & 0xFF)
-            bytes[at + 2] = UInt8((raw >> 8) & 0xFF)
-            bytes[at + 3] = UInt8(raw & 0xFF)
-        }
-
-        let headerSize = is64 ? 32 : 28
-        let commandCount = Int(read32(16))
-        let commandsSize = Int(read32(20))
-        guard headerSize + commandsSize <= bytes.count, commandCount < 4096 else { return nil }
-
-        var kept: [UInt8] = []
-        kept.reserveCapacity(commandsSize)
-        var cursor = headerSize
-        var removed = 0
-        for _ in 0..<commandCount {
-            guard cursor + 8 <= headerSize + commandsSize else { break }
-            let command = read32(cursor)
-            let size = Int(read32(cursor + 4))
-            guard size >= 8, cursor + size <= headerSize + commandsSize else { break }
-            var shouldDrop = false
-            let isDylib = command == 0x0C || command == 0x8000_0018 || command == 0x18
-            if isDylib {
-                let nameOffset = Int(read32(cursor + 8))
-                if nameOffset > 0, nameOffset < size {
-                    let start = cursor + nameOffset
-                    let end = min(start + 1024, cursor + size)
-                    if let text = String(bytes: bytes[start..<end], encoding: .utf8) {
-                        let library = text.split(separator: "\0").first.map(String.init) ?? ""
-                        // Match on the file name: a build may link
-                        // `@executable_path/Frameworks/X.dylib` while the tweak
-                        // is registered as `X.dylib`.
-                        let leaf = (library as NSString).lastPathComponent
-                        shouldDrop = names.contains(library) || names.contains(leaf)
-                    }
-                }
-            }
-            if shouldDrop {
-                removed += 1
-            } else {
-                kept.append(contentsOf: bytes[cursor..<(cursor + size)])
-            }
-            cursor += size
-        }
-        guard removed > 0 else { return nil }
-
-        // Copy back the smaller list; the bytes it used to occupy become zero
-        // padding, which is legal and never read.
-        for index in 0..<kept.count { bytes[headerSize + index] = kept[index] }
-        for index in (headerSize + kept.count)..<(headerSize + commandsSize) {
-            bytes[index] = 0
-        }
-        write32(UInt32(commandCount - removed), at: 16)
-        write32(UInt32(kept.count), at: 20)
-        return Data(bytes)
-    }
-
-    /// The app's own libraries: what it links besides Apple's frameworks. This
-    /// is what a tweak looks like from the outside.
-    static func tweakLibraries(in binary: Data) -> [String] {
-        linkedLibraries(in: binary).filter { library in
-            let lowered = library.lowercased()
-            guard lowered.hasSuffix(".dylib") || lowered.contains(".framework/") else { return false }
-            // Apple's own live in /usr/lib or /System.
-            return !lowered.hasPrefix("/usr/lib/") && !lowered.hasPrefix("/system/")
-        }
     }
 
 }
@@ -1046,4 +946,92 @@ enum MachOInject {
         return UInt32(bytes[at]) << 24 | UInt32(bytes[at + 1]) << 16
             | UInt32(bytes[at + 2]) << 8 | UInt32(bytes[at + 3])
     }
+    /// Removes the load commands for named libraries, for taking a tweak back
+    /// out of a build.
+    ///
+    /// Only the header's command list is rewritten: the commands are copied in
+    /// order, minus the ones named, and `ncmds`/`sizeofcmds` are corrected.
+    /// Nothing is moved, so every segment and symbol offset stays valid.
+    static func stripLibraries(_ names: Set<String>, from binary: Data) -> Data? {
+        guard !names.isEmpty else { return nil }
+        var bytes = [UInt8](binary)
+        guard bytes.count > 32 else { return nil }
+        let magic = be32(bytes, 0)
+        let bigEndian: Bool
+        let is64: Bool
+        switch magic {
+        case 0xCFFA_EDFE: bigEndian = false; is64 = true
+        case 0xCEFA_EDFE: bigEndian = false; is64 = false
+        case 0xFEED_FACF: bigEndian = true;  is64 = true
+        case 0xFEED_FACE: bigEndian = true;  is64 = false
+        default: return nil
+        }
+        func read32(_ at: Int) -> UInt32 {
+            let value = be32(bytes, at)
+            return bigEndian ? value : value.byteSwapped
+        }
+        func write32(_ value: UInt32, at: Int) {
+            let raw = bigEndian ? value : value.byteSwapped
+            bytes[at] = UInt8((raw >> 24) & 0xFF)
+            bytes[at + 1] = UInt8((raw >> 16) & 0xFF)
+            bytes[at + 2] = UInt8((raw >> 8) & 0xFF)
+            bytes[at + 3] = UInt8(raw & 0xFF)
+        }
+
+        let headerSize = is64 ? 32 : 28
+        let commandCount = Int(read32(16))
+        let commandsSize = Int(read32(20))
+        guard headerSize + commandsSize <= bytes.count, commandCount < 4096 else { return nil }
+
+        var kept: [UInt8] = []
+        kept.reserveCapacity(commandsSize)
+        var cursor = headerSize
+        var removed = 0
+        for _ in 0..<commandCount {
+            guard cursor + 8 <= headerSize + commandsSize else { break }
+            let command = read32(cursor)
+            let size = Int(read32(cursor + 4))
+            guard size >= 8, cursor + size <= headerSize + commandsSize else { break }
+            var shouldDrop = false
+            if command == 0x0C || command == 0x8000_0018 || command == 0x18 {
+                let nameOffset = Int(read32(cursor + 8))
+                if nameOffset > 0, nameOffset < size {
+                    let start = cursor + nameOffset
+                    let end = min(start + 1024, cursor + size)
+                    if let text = String(bytes: bytes[start..<end], encoding: .utf8) {
+                        let library = text.split(separator: "\0").first.map(String.init) ?? ""
+                        // Match the file name too: a build may link
+                        // `@executable_path/Frameworks/X.dylib` while the tweak
+                        // is known as `X.dylib`.
+                        let leaf = (library as NSString).lastPathComponent
+                        shouldDrop = names.contains(library) || names.contains(leaf)
+                    }
+                }
+            }
+            if shouldDrop {
+                removed += 1
+            } else {
+                kept.append(contentsOf: bytes[cursor..<(cursor + size)])
+            }
+            cursor += size
+        }
+        guard removed > 0 else { return nil }
+
+        for index in 0..<kept.count { bytes[headerSize + index] = kept[index] }
+        for index in (headerSize + kept.count)..<(headerSize + commandsSize) { bytes[index] = 0 }
+        write32(UInt32(commandCount - removed), at: 16)
+        write32(UInt32(kept.count), at: 20)
+        return Data(bytes)
+    }
+
+    /// The app's own libraries: what it links besides Apple's frameworks. This is
+    /// what a tweak looks like from the outside.
+    static func tweakLibraries(in binary: Data) -> [String] {
+        linkedLibraries(in: binary).filter { library in
+            let lowered = library.lowercased()
+            guard lowered.hasSuffix(".dylib") || lowered.contains(".framework/") else { return false }
+            return !lowered.hasPrefix("/usr/lib/") && !lowered.hasPrefix("/system/")
+        }
+    }
+
 }
