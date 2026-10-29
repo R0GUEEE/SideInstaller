@@ -943,9 +943,13 @@ enum MachOInject {
     /// Removes the load commands for named libraries, for taking a tweak back
     /// out of a build.
     ///
-    /// Only the header's command list is rewritten: the commands are copied in
-    /// order, minus the ones named, and `ncmds`/`sizeofcmds` are corrected.
-    /// Nothing is moved, so every segment and symbol offset stays valid.
+    /// Only the header's command list is rewritten: the commands themselves are
+    /// copied in order, minus the ones named, and `ncmds`/`sizeofcmds` are
+    /// corrected. Nothing is moved, so every segment and symbol offset stays
+    /// valid — the same reason injection works by filling padding.
+    ///
+    /// Returns nil when nothing matched, and throws nothing: a binary without
+    /// padding for the header is impossible here, since the list only shrinks.
     static func stripLibraries(_ names: Set<String>, from binary: Data) -> Data? {
         guard !names.isEmpty else { return nil }
         var bytes = [UInt8](binary)
@@ -987,16 +991,17 @@ enum MachOInject {
             let size = Int(read32(cursor + 4))
             guard size >= 8, cursor + size <= headerSize + commandsSize else { break }
             var shouldDrop = false
-            if command == 0x0C || command == 0x8000_0018 || command == 0x18 {
+            let isDylib = command == 0x0C || command == 0x8000_0018 || command == 0x18
+            if isDylib {
                 let nameOffset = Int(read32(cursor + 8))
                 if nameOffset > 0, nameOffset < size {
                     let start = cursor + nameOffset
                     let end = min(start + 1024, cursor + size)
                     if let text = String(bytes: bytes[start..<end], encoding: .utf8) {
                         let library = text.split(separator: "\0").first.map(String.init) ?? ""
-                        // Match the file name too: a build may link
+                        // Match on the file name: a build may link
                         // `@executable_path/Frameworks/X.dylib` while the tweak
-                        // is known as `X.dylib`.
+                        // is registered as `X.dylib`.
                         let leaf = (library as NSString).lastPathComponent
                         shouldDrop = names.contains(library) || names.contains(leaf)
                     }
@@ -1011,21 +1016,35 @@ enum MachOInject {
         }
         guard removed > 0 else { return nil }
 
+        // Copy back the smaller list; the bytes it used to occupy become zero
+        // padding, which is legal and never read.
         for index in 0..<kept.count { bytes[headerSize + index] = kept[index] }
-        for index in (headerSize + kept.count)..<(headerSize + commandsSize) { bytes[index] = 0 }
+        for index in (headerSize + kept.count)..<(headerSize + commandsSize) {
+            bytes[index] = 0
+        }
         write32(UInt32(commandCount - removed), at: 16)
         write32(UInt32(kept.count), at: 20)
         return Data(bytes)
     }
 
-    /// The app's own libraries: what it links besides Apple's frameworks. This is
-    /// what a tweak looks like from the outside.
+    /// The app's own libraries: what it links besides Apple's frameworks. This
+    /// is what a tweak looks like from the outside.
     static func tweakLibraries(in binary: Data) -> [String] {
         linkedLibraries(in: binary).filter { library in
             let lowered = library.lowercased()
             guard lowered.hasSuffix(".dylib") || lowered.contains(".framework/") else { return false }
+            // Apple's own live in /usr/lib or /System.
             return !lowered.hasPrefix("/usr/lib/") && !lowered.hasPrefix("/system/")
         }
     }
 
+    private static func align(_ value: Int, to boundary: Int) -> Int {
+        (value + boundary - 1) / boundary * boundary
+    }
+
+    private static func be32(_ bytes: [UInt8], _ at: Int) -> UInt32 {
+        guard at >= 0, at + 4 <= bytes.count else { return 0 }
+        return UInt32(bytes[at]) << 24 | UInt32(bytes[at + 1]) << 16
+            | UInt32(bytes[at + 2]) << 8 | UInt32(bytes[at + 3])
+    }
 }

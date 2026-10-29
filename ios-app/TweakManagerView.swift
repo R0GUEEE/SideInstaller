@@ -163,7 +163,6 @@ struct TweakManagerView: View {
                 let libraries = MachOInject.tweakLibraries(in: binary)
                 return Stored(build: build, libraries: libraries, injected: !libraries.isEmpty)
             }
-            return out
         }.value
         items = read
         isReading = false
