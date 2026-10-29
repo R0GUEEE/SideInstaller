@@ -4,7 +4,11 @@ All notable changes to SideInstaller are documented here.
 
 ## Unreleased
 
-### Changed
+### Added
+- **A refresh button on the Install tab clears everything it was given.** Top right: it drops the
+  imported `.ipa` (and deletes its copy), any release picked, the build and channel back to
+  SideStore/stable, the signing configuration, the pasted link and the last run's state. Nothing a
+  previous attempt left behind can be carried into the next install by accident.
 - **Injection frameworks live in Tweak storage now.** The loader list — ElleKit, Substitute,
   CydiaSubstrate, libhooker, with download / add-from-file / remove — moved out of the install
   menu's tweak section into **Tools › Tweak storage**, beside the libraries they load. A loader is

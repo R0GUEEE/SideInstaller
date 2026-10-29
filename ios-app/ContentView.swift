@@ -113,6 +113,15 @@ struct ContentView: View {
                 }
             }
             .background(AppBackground())
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { resetMenu() } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .disabled(engine.isRunning || engine.isImportingIPA)
+                    .accessibilityLabel(L("Clear the install menu"))
+                }
+            }
             .sheet(isPresented: $showImporter) {
                 FileImporterRepresentableView(allowedContentTypes: [.ipa]) { urls in
                     guard let url = urls.first else { return }   // empty means cancelled
@@ -141,6 +150,19 @@ struct ContentView: View {
             }
             .scrollDismissesKeyboard(.interactively)
         }
+    }
+
+    /// The refresh button's work: the build, the release picked, the imported
+    /// file and the signing configuration all go, so the next install can't
+    /// inherit any of it.
+    private func resetMenu() {
+        ipaLink = ""
+        linkFieldFocused = false
+        stepsExpanded = false
+        confirmingCancel = false
+        appConfig.clearAfterInstall()
+        engine.resetInstallMenu()
+        Haptics.tap()
     }
 
     // MARK: Derived visibility

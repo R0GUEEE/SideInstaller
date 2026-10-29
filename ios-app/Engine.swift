@@ -3182,6 +3182,32 @@ final class Engine: ObservableObject {
     /// ID's certificate. Used by the Inspect page's Install button and by a
     /// source's app page.
     @MainActor
+    /// Forgets everything the Install tab was given: the imported `.ipa` (and
+    /// its copy on disk), the release picked, the build and channel, and the
+    /// last run's state. The next install starts from a clean menu.
+    func resetInstallMenu() {
+        guard !isRunning, !isImportingIPA else { return }
+        if let imported = IPALibrary.customImport()?.url {
+            try? FileManager.default.removeItem(at: imported)
+        }
+        customIPAName = nil
+        downloadedIPAPath = nil
+        downloadedSource = nil
+        downloadedChannel = nil
+        downloadedVersion = nil
+        signedAppPath = nil
+        signedDisplayName = nil
+        selectedVersion = nil
+        installSource = .sideStore
+        releaseChannel = .stable
+        lastError = nil
+        resetRun()
+        // Views that hold their own fields (the link, the expanded sections)
+        // listen for this and start over too.
+        installMenuRevision += 1
+        log("Install menu cleared: no imported .ipa, no picked release, no configuration.")
+    }
+
     /// Downloads a build and leaves it in the install menu instead of running
     /// it: the marketplace hands off here so an app can be configured — name,
     /// capabilities, tweaks — before it's signed.
