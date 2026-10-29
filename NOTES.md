@@ -1736,3 +1736,27 @@ weakly in their callbacks.
   (SHA-256 verified when the index publishes one) and calls `TweakPackageInstaller.add`, which is
   `addTweaks`. The browser and the configuration page therefore can't disagree about what an update
   produces — they call the same two functions.
+
+### Install menu: the setup is the menu
+
+- **Nothing install-relevant is behind a disclosure any more.** The version picker and the pairing
+  file used to live in an **Advanced** section *below* the button, which meant a run could start
+  with a stale version or someone else's pairing file and the only clue was a smaller section. They
+  are chips inside the install card now — above the button, each showing its current value, so the
+  menu doubles as the receipt for the next run.
+- **Cards, not a dropdown, for the build.** `InstallSource` has four cases and a `Menu`+`Picker`
+  showed one line at a time; the differences between "SideStore" and "SideStore + LiveContainer" are
+  exactly what a one-line menu hides. A 2×2 grid of cards shows all four, their one-line
+  descriptions, and the selection.
+- **The version list is a page, not a menu.** Release titles can carry a maintainer's warning
+  (`0.6.4 (DO NOT USE)`); a `Menu` truncates them and a picker can't show a second line. The sheet
+  lists releases with the remark under the title, plus the channel control and the fetch error with
+  its retry.
+- **Chips are values, not buttons.** `InstallOptionChip` takes its text from engine state
+  (`selectedVersion`, `releaseCatalog.latest`, `importedPairingName`, `config.summary.count`), so a
+  chip can't disagree with what the run will do — there's no second copy of the choice to drift.
+- **The catalog is fetched when the card appears**, not when the version sheet opens, because the
+  chip names the release ("Latest (2.4.1)") and would otherwise read "Latest" until the sheet had
+  been visited once.
+- **`AppConfigView` is unchanged** — it was already the page the Configuration chip opens. The card
+  only gained the chip, which counts `config.summary` so the change is visible without opening it.

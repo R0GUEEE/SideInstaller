@@ -17,9 +17,10 @@ struct ContentView: View {
     @State private var showAppConfig = false
     /// True while the pairing-file picker is up.
     @State private var showPairingImporter = false
-    /// When false, the Advanced section under the Install button shows only its
-    /// title.
-    @State private var advancedExpanded = false
+    /// The version list, and the pairing-file choice, as sheets opened from the
+    /// install menu's chips.
+    @State private var showVersionPicker = false
+    @State private var showPairingOptions = false
     /// When false, the timeline shows only the current step.
     @State private var stepsExpanded = false
     /// True while the Install button is held down. Its surface is drawn outside
@@ -43,7 +44,7 @@ struct ContentView: View {
                     if updateChecker.showBanner {
                         updateBanner.transition(.cardAppear)
                     }
-                    appCard.cascadeItem(1)
+                    installCard.cascadeItem(1)
                     queueCard.cascadeItem(2)
                     clipboardCard.cascadeItem(3)
                     // Below iOS 27 a pairing file must be imported, so show the
@@ -79,14 +80,6 @@ struct ContentView: View {
                             .cascadeItem(cascade(4))
                             .transition(.asymmetric(insertion: .identity, removal: .tuckUnder))
                     }
-                    // The build's version, and from iOS 27 (which pairs itself)
-                    // the optional pairing-file import, folded away. Like the
-                    // button above, the cascade brings it back after a run.
-                    if showsAdvanced {
-                        advancedSection
-                            .cascadeItem(cascade(5))
-                            .transition(.asymmetric(insertion: .identity, removal: .quickFade))
-                    }
                     // Guides, the pairing code, errors and success show as
                     // `InstallPopup`, which `RootView` lays over the app.
                     footer.cascadeItem(cascade(6))
@@ -103,8 +96,6 @@ struct ContentView: View {
                 .animation(.smooth(duration: 0.35), value: engine.deviceSummary)
                 .animation(.smooth(duration: 0.3), value: engine.isRunning)
                 .animation(.smooth(duration: 0.35), value: engine.importedPairingName)
-                .animation(.smooth(duration: 0.35), value: advancedExpanded)
-                .animation(.smooth(duration: 0.35), value: showsAdvanced)
                 // A new import starts the page over: no stale link in the
                 // field, no Advanced left open from the last app.
                 .onAppear {
@@ -115,7 +106,6 @@ struct ContentView: View {
         }
         .onChange(of: engine.installMenuRevision) { _, _ in
                     ipaLink = ""
-                    advancedExpanded = false
                     stepsExpanded = false
                     confirmingCancel = false
                     linkFieldFocused = false
@@ -132,6 +122,12 @@ struct ContentView: View {
                 .ignoresSafeArea()
             }
             .sheet(isPresented: $showAppConfig) { AppConfigView() }
+            .sheet(isPresented: $showVersionPicker) {
+                ReleaseVersionSheet(engine: engine, source: engine.installSource)
+            }
+            .sheet(isPresented: $showPairingOptions) {
+                PairingOptionsSheet(engine: engine)
+            }
             .sheet(isPresented: $showPairingImporter) {
                 FileImporterRepresentableView(allowedContentTypes: UTType.pairingFileTypes) { urls in
                     guard let url = urls.first else { return }   // empty means cancelled
@@ -152,13 +148,6 @@ struct ContentView: View {
     /// True on an iPhone new enough to install but too old to pair itself.
     private var showsPairingCard: Bool {
         engine.osSupported && !engine.canSelfPair
-    }
-
-    /// True when Advanced has something to hold: a version to pick (not for a
-    /// custom IPA), or the optional pairing file (iOS 27 and above). A run
-    /// can't take a change to either, so it's away while one goes.
-    private var showsAdvanced: Bool {
-        !engine.isRunning
     }
 
     /// Cascade index for items below the pairing-file card, shifted by one when
@@ -434,52 +423,90 @@ struct ContentView: View {
         clipboardURL = link
     }
 
-    private var appCard: some View {
+    /// The install menu: what to install, how it's customised, and which
+    /// release — all above the Install button, so an advanced install is set up
+    /// before the run instead of found afterwards.
+    private var installCard: some View {
         PanelCard {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 14) {
                 sectionTitle(L("Install"), systemImage: "square.and.arrow.down.fill")
-                Menu {
-                    Picker(L("Install"), selection: $engine.installSource) {
-                        ForEach(InstallSource.allCases) { src in
-                            Text(src.displayName).tag(src)
-                        }
-                    }
-                } label: {
-                    HStack {
-                        Text(engine.installSource.displayName)
-                            .foregroundStyle(.primary)
-                        Spacer()
-                        Image(systemName: "chevron.up.chevron.down")
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                    }
-                    .fieldBackground()
-                    .contentShape(Rectangle())
-                }
+
+                InstallSourceChooser(source: $engine.installSource, disabled: engine.isRunning)
 
                 // A custom IPA has no release, so the importer takes that slot;
                 // a build with no nightly has nothing to pick and no slot.
-                if engine.installSource == .custom || engine.installSource.hasNightly {
-                    ZStack {
-                        if engine.installSource == .custom {
-                            importControl.transition(.opacity)
-                        } else {
-                            Picker(L("Release"), selection: $engine.releaseChannel) {
-                                ForEach(ReleaseChannel.allCases) { channel in
-                                    Text(channel.displayName).tag(channel)
-                                }
-                            }
-                            .pickerStyle(.segmented)
-                            .transition(.opacity)
+                if engine.installSource == .custom {
+                    importControl.transition(.opacity)
+                } else if engine.installSource.hasNightly {
+                    Picker(L("Release"), selection: $engine.releaseChannel) {
+                        ForEach(ReleaseChannel.allCases) { channel in
+                            Text(channel.displayName).tag(channel)
                         }
                     }
+                    .pickerStyle(.segmented)
                     .transition(.opacity)
                 }
+
+                Divider().opacity(0.15)
+                optionChips
             }
-            // On the whole card, so it also resizes smoothly when the slot goes.
+            // On the whole card, so it also resizes smoothly when a slot goes.
             .animation(.smooth(duration: 0.28), value: engine.installSource)
         }
         .disabled(engine.isRunning)
+        // The chips name the release, so the catalog is fetched when the card
+        // appears rather than only when the version sheet opens.
+        .task(id: engine.installSource) {
+            guard engine.installSource != .custom else { return }
+            await engine.loadReleaseCatalog(for: engine.installSource)
+        }
+    }
+
+    /// What the install carries, each chip opening the page that sets it. The
+    /// values are the state, so the menu doubles as the receipt.
+    private var optionChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                if engine.installSource == .custom {
+                    InstallOptionChip(icon: "slider.horizontal.3",
+                                      title: L("Configuration"),
+                                      value: configurationChipValue,
+                                      tint: appConfig.config.summary.isEmpty
+                                            ? Theme.accent2 : .green) {
+                        showAppConfig = true
+                    }
+                } else {
+                    InstallOptionChip(icon: "clock.arrow.circlepath",
+                                      title: L("Version"),
+                                      value: versionChipValue) {
+                        showVersionPicker = true
+                    }
+                }
+                if engine.canSelfPair {
+                    InstallOptionChip(icon: "lock.doc.fill",
+                                      title: L("Pairing"),
+                                      value: engine.importedPairingName ?? L("Automatic")) {
+                        showPairingOptions = true
+                    }
+                }
+            }
+            .padding(.horizontal, 2)
+        }
+    }
+
+    /// The release the Install button will take: what's picked, or the newest
+    /// of the channel.
+    private var versionChipValue: String {
+        let source = engine.installSource
+        let latest = engine.releaseCatalogs[source]?.latest[engine.selectedChannel]
+        return engine.selectedVersion?.title ?? latestLabel(latest)
+    }
+
+    /// How much of the app configuration changes the build, in the space a chip
+    /// has: a count, or the word for none.
+    private var configurationChipValue: String {
+        let changes = appConfig.config.summary.count
+        return changes == 0 ? L("Default") : L("%d changes", changes)
     }
 
     /// The two ways in for a custom build: pick a file, or paste a link.
@@ -817,163 +844,11 @@ struct ContentView: View {
         .disabled(engine.isImportingPairing)
     }
 
-    // MARK: Advanced
-
-    /// Advanced section under the Install button, collapsed until its title is
-    /// tapped. Holds the build's version and, from iOS 27, the optional
-    /// pairing-file import.
-    private var advancedSection: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Button { advancedExpanded.toggle() } label: {
-                HStack(spacing: 8) {
-                    sectionTitle(L("Advanced"), systemImage: "slider.horizontal.3")
-                    Spacer(minLength: 4)
-                    // Collapsed, this is the only sign an imported file is in use.
-                    if engine.canSelfPair, engine.importedPairingName != nil {
-                        Image(systemName: "checkmark.seal.fill")
-                            .foregroundStyle(.green)
-                            .transition(.scale.combined(with: .opacity))
-                    }
-                    disclosureChevron(expanded: advancedExpanded)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-
-            if advancedExpanded {
-                VStack(alignment: .leading, spacing: 22) {
-                    if engine.installSource != .custom {
-                        versionOption
-                    }
-                    if engine.installSource == .custom {
-                        appConfigOption
-                    }
-                    if engine.canSelfPair {
-                        pairingFileOption
-                    }
-                }
-                .transition(.opacity.combined(with: .offset(y: -6)))
-            }
-        }
-        // No card behind it; inset to line up with the card contents above.
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 18)
-    }
-
-    /// What to change about the imported .ipa: its identity, its extensions,
-    /// and the tweaks loaded into it.
-    private var appConfigOption: some View {
-        let summary = appConfig.config.summary
-        return VStack(alignment: .leading, spacing: 10) {
-            Label(L("App configuration"), systemImage: "slider.horizontal.3")
-                .font(.subheadline.weight(.semibold))
-            Button {
-                showAppConfig = true
-            } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: summary.isEmpty ? "square.dashed" : "checkmark.seal.fill")
-                        .foregroundStyle(summary.isEmpty ? Color.secondary : Theme.accent2)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(summary.isEmpty ? L("Nothing changed") : L("%d changes", summary.count))
-                            .font(.subheadline)
-                            .foregroundStyle(.primary)
-                        Text(summary.isEmpty
-                             ? L("Rename it, drop extensions, or inject tweaks before signing.")
-                             : summary.joined(separator: " · "))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                    }
-                    Spacer(minLength: 4)
-                    Image(systemName: "chevron.right")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(.tertiary)
-                }
-                .fieldBackground()
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-        }
-    }
-
-    /// Which release of the selected build to install. The list follows the
-    /// channel picked above; "Latest" is the default.
-    private var versionOption: some View {
-        let source = engine.installSource
-        let catalog = engine.releaseCatalogs[source]
-        let latest = catalog?.latest[engine.selectedChannel]
-        let shown = engine.selectedVersion ?? latest
-        return VStack(alignment: .leading, spacing: 12) {
-            Label(L("%@ version", source.shortName), systemImage: "clock.arrow.circlepath")
-                .font(.subheadline.weight(.semibold))
-            Menu {
-                Picker(L("Version"), selection: $engine.selectedVersion) {
-                    Text(latestLabel(latest)).tag(ReleaseVersion?.none)
-                    ForEach(catalog?.others[engine.selectedChannel] ?? []) { version in
-                        Text(version.menuTitle).tag(Optional(version))
-                    }
-                }
-            } label: {
-                HStack {
-                    Text(engine.selectedVersion?.title ?? latestLabel(latest))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                    Spacer()
-                    if engine.loadingCatalog == source {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Image(systemName: "chevron.up.chevron.down")
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .fieldBackground()
-                .contentShape(Rectangle())
-            }
-            // A release's title can carry the maintainers' warning ("DO NOT USE").
-            if let shown, shown.hasRemark {
-                Label(shown.menuTitle, systemImage: "info.circle")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            if let error = engine.catalogErrors[source] {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(L("Couldn't load the other versions: %@", error))
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Button(L("Try again")) {
-                        Task { await engine.loadReleaseCatalog(for: source, force: true) }
-                    }
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(Theme.accent2)
-                    .buttonStyle(.plain)
-                }
-            }
-        }
-        // Fetched when the section opens, and again for another build.
-        .task(id: source) { await engine.loadReleaseCatalog(for: source) }
-    }
-
     /// "Latest", naming the release it stands for when that has a version.
     private func latestLabel(_ latest: ReleaseVersion?) -> String {
         // The nightly tag names no version, so it isn't repeated.
         guard let latest, latest.tag != "nightly" else { return L("Latest") }
         return L("Latest (%@)", latest.title)
-    }
-
-    /// The optional pairing-file import (iOS 27 and above).
-    private var pairingFileOption: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label(L("Pairing file"), systemImage: "lock.doc.fill")
-                .font(.subheadline.weight(.semibold))
-            Text(L("(Optional)"))
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-            pairingImportButton
-            pairingDocsLink
-        }
     }
 
     // MARK: Wi-Fi requirement

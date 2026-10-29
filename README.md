@@ -69,8 +69,10 @@ anyone to read, audit, or contribute to, so you can see exactly what's running o
 2. Once it's installed, open it.
 3. Connect the device to LocalDevVPN (or any alternative)
 4. Log in with your Apple account credentials.
-5. Tap **Install SideStore** or **Install SideStore + LiveContainer**.
-6. Wait while your selection installs.
+5. Pick what to install — SideStore, SideStore + LiveContainer, Madeira, or your own `.ipa` — and
+   set anything the install should carry: the release version, the app configuration for a custom
+   build, or a pairing file.
+6. Tap **Install**, and wait while your selection installs.
 7. That's it. No PC and no extra steps required.
 
 ### Links
@@ -125,6 +127,22 @@ Each source is cached, so the list opens without a network and says so when a re
 
 Builds downloaded from a link or a source are put through the same check before signing, so an
 encrypted App Store copy is refused instead of using up an App ID.
+
+## The install menu
+
+The Install tab is the whole setup, in one card above the button:
+
+- **Four build cards** — SideStore, SideStore + LiveContainer, Madeira, or a Custom `.ipa`. Each says
+  what it is, and the custom one opens the file picker and a download-link field.
+- **Version** — the release to install, listed rather than folded into a menu, so a tag's warning
+  ("DO NOT USE") is readable before it's picked. The stable/nightly channel sits at the top of the
+  same page.
+- **Configuration** — for a custom build: the app configuration (identity, extensions, plist keys,
+  entitlements, tweaks, JIT), with the number of changes on the chip.
+- **Pairing** — automatic, or the pairing file you imported. Below iOS 27 the import card stays on
+  the page, because a file is required rather than optional there.
+
+Each chip reads out the current value, so the menu is also the summary of what the next run will do.
 
 ## Tweak browser
 

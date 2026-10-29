@@ -4,6 +4,14 @@ All notable changes to SideInstaller are documented here.
 
 ## Unreleased
 
+### Changed
+- **The install menu is the whole setup, above the Install button.** The build is now four cards
+  (SideStore, SideStore + LiveContainer, Madeira, Custom .ipa) instead of a dropdown, and what the
+  install carries is a row of chips that say what they're set to: **Version** (the release, as a list
+  with room for a maintainer's warning), **Configuration** (how many changes the custom `.ipa` will
+  get), and **Pairing** (automatic, or the file you imported). The old collapsed **Advanced** section
+  under the button is gone; nothing an install needs is behind a disclosure any more.
+
 ### Added
 - **Tweaks know what they are, and when there's a newer one.** A package added from a repository —
   or a `.deb` picked in Files — now records its package identifier, version and where it came from.
