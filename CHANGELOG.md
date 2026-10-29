@@ -5,6 +5,15 @@ All notable changes to SideInstaller are documented here.
 ## Unreleased
 
 ### Changed
+- **The action buttons are one size again.** The shared primary button dropped from a 52-point slab
+  (headline, 16pt of air, 18-point corners) to a 40-point row: `subheadline` semibold, 12 points of
+  padding, 14-point corners and a tighter glow — and with it every screen that uses it (Refresh all,
+  Load apps, Pair across iPhones, Sign in, and the rest). A new **secondary** style shares those
+  measurements, so a primary and secondary action side by side are the same height; the first place
+  that needed it was the "did you get it from sideinstaller.net" pair. The Install tab's own button
+  keeps its size, since it reshapes into the run's progress card rather than sitting in a row.
+
+### Changed
 - **Install, My Apps and Tools open with a compact header.** The big hero — an 86-point glyph over
   a large title with the status pill under it — gave way to a single row: a 34-point glyph beside a
   `title3` title, the status pill tucked under, about 70 points tall instead of 140. On the three

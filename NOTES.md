@@ -1829,3 +1829,18 @@ bounds what it allocates.
 - **`hasAccessory`** compares `Accessory.self` with `EmptyView.self` so the stack doesn't reserve
   spacing for a header that has nothing to show under it. The pill keeps its `.id` and transition,
   so the cross-fade when the tunnel state changes is unchanged.
+
+### One button size
+
+- **`PrimaryButtonStyle` was the app's biggest control** — `headline`, 16 points of vertical
+  padding, 18-point corners, a 16-point glow — at about 52 points tall, next to `.bordered` buttons
+  at 34 and chips at 30. It's now `subheadline` semibold, 12 points, 14-point corners and a
+  10-point glow: ~40 points, which is the platform's own comfortable touch height and reads as a
+  sibling of the chips rather than a different family.
+- **`SecondaryButtonStyle` exists so pairs line up.** The "No, or I'm not sure" button on the
+  account check was a hand-built copy of the old primary (16 points, radius 18, custom fill); it's
+  the new secondary now, which is defined in the same terms as the primary and will stay in step
+  with it.
+- **The Install button is deliberately excluded.** It isn't a row action: the same surface grows
+  into the run's progress card, and its height and corners are part of that animation. Shrinking it
+  would have made the app's main action the smallest thing on the screen.

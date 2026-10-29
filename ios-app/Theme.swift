@@ -864,18 +864,42 @@ struct PrimaryButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.headline)
+            .font(.subheadline.weight(.semibold))
             .foregroundStyle(.white)
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 16)
+            .padding(.vertical, 12)
             .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .fill(gradient)
             )
-            .shadow(color: glow.opacity(0.4), radius: 16, x: 0, y: 8)
+            .shadow(color: glow.opacity(0.35), radius: 10, x: 0, y: 5)
             .scaleEffect(configuration.isPressed ? 0.97 : 1)
             .opacity(configuration.isPressed ? 0.92 : 1)
             .animation(.snappy(duration: 0.22), value: configuration.isPressed)
+    }
+}
+
+/// The quieter half of a button row: the same height, corners and padding as
+/// the primary, with a wash instead of the brand gradient. Shared so a pair of
+/// actions lines up without each page guessing at a height.
+struct SecondaryButtonStyle: ButtonStyle {
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.primary)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color.primary.opacity(0.08))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.10))
+            )
+            .opacity(configuration.isPressed ? 0.72 : 1)
+            .animation(.snappy(duration: 0.2), value: configuration.isPressed)
     }
 }
 

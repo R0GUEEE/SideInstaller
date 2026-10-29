@@ -163,13 +163,7 @@ struct OfficialSourceCheck: View {
                 Button(L("Yes, from sideinstaller.net"), action: onConfirm)
                     .buttonStyle(PrimaryButtonStyle())
                 Button(L("No, or I'm not sure")) { unofficial = true }
-                    .font(.headline)
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 16)
-                    .background(RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .fill(.white.opacity(0.08)))
-                    .buttonStyle(.plain)
+                    .buttonStyle(SecondaryButtonStyle())
             }
         }
     }
