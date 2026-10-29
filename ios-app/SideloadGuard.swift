@@ -22,26 +22,6 @@ import Foundation
 /// invisibility.
 enum SideloadGuard {
 
-    /// A path or scheme worth neutralising — long enough that a false positive
-    /// in ordinary code is unlikely.
-    struct Marker {
-        let needle: String
-        let label: String
-    }
-
-    static let markers: [Marker] = [
-        Marker(needle: "/Applications/Cydia.app", label: L("Cydia installed")),
-        Marker(needle: "/private/jailbreak.txt", label: L("jailbreak marker file")),
-        Marker(needle: "/var/lib/dpkg/status", label: L("dpkg status")),
-        Marker(needle: "/var/jb/", label: L("rootless jailbreak root")),
-        Marker(needle: "cydia://", label: L("Cydia URL scheme")),
-        Marker(needle: "sileo://", label: L("Sileo URL scheme")),
-        Marker(needle: "embedded.mobileprovision", label: L("embedded provisioning profile")),
-        Marker(needle: "get-task-allow", label: L("get-task-allow entitlement")),
-        Marker(needle: "frida", label: L("Frida")),
-        Marker(needle: "substrate", label: L("Substrate")),
-    ]
-
     /// Frameworks that mean the app can prove where it was installed from.
     static let attestationFrameworks = ["DeviceCheck", "AppAttest"]
 
@@ -78,50 +58,12 @@ enum SideloadGuard {
             // Swift String is another few hundred megabytes of working set for
             // a handful of `contains` checks.
             let bytes = [UInt8](binary)
-            for marker in markers where contains(Array(marker.needle.utf8), in: bytes) {
+            for marker in SideloadPatch.markers
+                where SideloadPatch.contains(Array(marker.needle.utf8), in: bytes) {
                 report.markers.append(marker.label)
             }
         }
         return report
-    }
-
-    private static func contains(_ needle: [UInt8], in haystack: [UInt8]) -> Bool {
-        guard !needle.isEmpty, haystack.count >= needle.count else { return false }
-        let last = haystack.count - needle.count
-        var index = 0
-        while index <= last {
-            if haystack[index] == needle[0],
-               Array(haystack[index..<(index + needle.count)]) == needle { return true }
-            index += 1
-        }
-        return false
-    }
-
-    /// Blanks the first byte of every known marker in the binary, in place.
-    /// Returns the same bytes with those C strings made empty, and what it hit.
-    static func patch(_ binary: Data) -> (data: Data, hits: [String]) {
-        var bytes = [UInt8](binary)
-        var hits: [String] = []
-        for marker in markers {
-            let needle = Array(marker.needle.utf8)
-            guard !needle.isEmpty else { continue }
-            var hit = false
-            var index = 0
-            while index + needle.count <= bytes.count {
-                if bytes[index] == needle[0],
-                   Array(bytes[index..<(index + needle.count)]) == needle {
-                    // An empty C string: same length, no layout change, and no
-                    // path or scheme left to match.
-                    bytes[index] = 0
-                    hit = true
-                    index += needle.count
-                } else {
-                    index += 1
-                }
-            }
-            if hit { hits.append(marker.label) }
-        }
-        return (Data(bytes), hits)
     }
 
     /// The main executable's bytes, read the same way the injector reads them.

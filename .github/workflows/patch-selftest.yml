@@ -30,7 +30,7 @@ jobs:
       - name: Build the harness
         run: |
           swiftc -O ios-app/IPAPatch.swift ios-app/AppConfig.swift ios-app/DebArchive.swift \
-            ios-app/InjectorCatalog.swift ios-app/MachO.swift \
+            ios-app/InjectorCatalog.swift ios-app/MachO.swift ios-app/SideloadPatch.swift \
             tools/patch-selftest/main.swift \
             -o "$RUNNER_TEMP/patch-selftest"
 

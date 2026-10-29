@@ -215,7 +215,7 @@ enum IPAPatch {
             // The detection strings, blanked in place after the injection so
             // the load commands and offsets stay exactly as they were.
             if config.bypassesSideloadDetection {
-                let patched = SideloadGuard.patch(binary)
+                let patched = SideloadPatch.patch(binary)
                 if patched.hits.isEmpty {
                     outcome.warnings.append(L("Sideload bypass: nothing recognisable was left to blank"))
                 } else {
