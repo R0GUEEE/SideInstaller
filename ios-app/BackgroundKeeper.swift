@@ -237,9 +237,6 @@ extension BackgroundKeeper: CLLocationManagerDelegate {
 struct BackgroundKeeperView: View {
     @EnvironmentObject private var loc: Localizer
     @ObservedObject private var keeper = BackgroundKeeper.shared
-    @ObservedObject private var settings = AppSettings.shared
-
-    @State private var showSettings = false
 
     var body: some View {
         ScrollView {
@@ -261,8 +258,6 @@ struct BackgroundKeeperView: View {
             .pageColumn()
         }
         .background(AppBackground())
-        .toolbar { settingsToolbarItem(isPresented: $showSettings) }
-        .sheet(isPresented: $showSettings) { SettingsView() }
     }
 
     private var modeCard: some View {
