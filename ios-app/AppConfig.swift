@@ -98,6 +98,13 @@ struct Tweak: Codable, Identifiable, Equatable {
 
     var isDeb: Bool { kind == .deb }
 
+    /// Where an injected library is loaded from: the app's own `Frameworks`
+    /// folder, beside the executable. Stated once here so every path that adds a
+    /// tweak agrees, and so the UI can show what it will be.
+    static func defaultLoadPath(for library: String) -> String {
+        "@executable_path/Frameworks/\(library)"
+    }
+
     /// What the list shows beside the name: `1.4` for a package, nothing for a
     /// bare library.
     var versionText: String? {
@@ -501,11 +508,16 @@ final class AppConfigStore: ObservableObject {
                         config.tweaks.removeAll { $0.id == previous.id }
                     }
                     config.tweaks.removeAll { $0.path == stored.path }
+                    // The library the package actually carries, which is what
+                    // the executable has to be told to load — a package's file
+                    // name and its library's name rarely match.
+                    let libraryName = package.libraries.first?.fileName
+                        ?? (name as NSString).deletingPathExtension
                     config.tweaks.append(Tweak(name: package.name ?? name,
                                                path: stored.path,
                                                kind: .deb,
-                                               loadPath: "",
-                                               weak: previous?.weak ?? false,
+                                               loadPath: Tweak.defaultLoadPath(for: libraryName),
+                                               weak: previous?.weak ?? true,
                                                requiresInjector: package.requiredInjector
                                                    ?? TweakInjectorKind.detected(inLibraries: linked),
                                                identifier: package.identifier,
@@ -518,7 +530,8 @@ final class AppConfigStore: ObservableObject {
                         .map { MachOInject.linkedLibraries(in: $0) } ?? []
                     config.tweaks.removeAll { $0.path == stored.path }
                     config.tweaks.append(Tweak(name: name, path: stored.path, kind: .dylib,
-                                               loadPath: "@executable_path/Frameworks/\(name)",
+                                               loadPath: Tweak.defaultLoadPath(for: name),
+                                               weak: true,
                                                requiresInjector: TweakInjectorKind.detected(inLibraries: linked)))
                 }
                 added += 1
@@ -526,7 +539,24 @@ final class AppConfigStore: ObservableObject {
                 failed.append(name)
             }
         }
+        // A tweak without its loader doesn't launch. Whatever the packages just
+        // added depend on is fetched now rather than waiting for someone to
+        // notice the warning — where a published build exists at all.
+        fetchMissingInjectors()
         return (added, failed)
+    }
+
+    /// Downloads the frameworks the configured tweaks need, for the ones that
+    /// have somewhere to download from. Closed-source loaders still have to be
+    /// added by hand, and the panel says so.
+    private func fetchMissingInjectors() {
+        let wanted = missingInjectors.filter { InjectorCatalog.entry(for: $0).source != nil }
+        guard !wanted.isEmpty else { return }
+        Task { @MainActor in
+            for kind in wanted where injector(for: kind) == nil {
+                await downloadInjector(kind)
+            }
+        }
     }
 
     func isPinned(_ field: AppConfig.IdentityField) -> Bool { config.isPinned(field) }

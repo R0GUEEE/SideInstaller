@@ -5,6 +5,12 @@ All notable changes to SideInstaller are documented here.
 ## Unreleased
 
 ### Changed
+- **Adding a tweak sets it up the way injection expects.** Every injected library is loaded from
+  `@executable_path/Frameworks/<library>` — the folder the build actually gets — and treated as
+  optional (`LC_LOAD_WEAK_DYLIB`) by default, for `.dylib` files and `.deb` packages alike; a
+  package's load path now names the library inside it rather than the package file. Adding a tweak
+  also fetches the injection framework it depends on when that framework is published (ElleKit,
+  Substitute); the closed ones still have to be added by hand.
 - **Downloads reads as a list of apps, compactly.** Each row shows the app's own name — read from the
   `.ipa`'s `Info.plist`, so a file downloaded as `com.burbn.instagram.ipa` reads Instagram — with its
   size and date on one line, and **Configure** and **Install** at the end of the row instead of a
