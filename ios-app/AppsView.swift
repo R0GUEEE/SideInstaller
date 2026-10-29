@@ -654,6 +654,15 @@ final class SideloadedAppsManager: ObservableObject {
         }
     }
 
+    /// Fills the icon column from what's already on disk, without asking the
+    /// device. Called when the list appears: a list restored from the last
+    /// session shouldn't show placeholder squares until the next read.
+    func preloadIcons() {
+        let ids = entries.map(\.app.bundleID)
+        guard !ids.isEmpty else { return }
+        loadIcons(for: ids)
+    }
+
     private static func cachedIcon(_ bundleID: String) -> UIImage? {
         guard let data = try? Data(contentsOf: iconFile(for: bundleID)) else { return nil }
         return UIImage(data: data)
@@ -882,6 +891,7 @@ struct AppsView: View {
         }
         .onAppear {
             manager.autoLoad()
+            manager.preloadIcons()
             refreshUpdateCandidates()
         }
         .onChange(of: sources.revision) { _, _ in refreshUpdateCandidates() }
