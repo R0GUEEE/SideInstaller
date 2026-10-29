@@ -16,10 +16,10 @@ struct ContentView: View {
     @State private var showAppConfig = false
     /// True while the pairing-file picker is up.
     @State private var showPairingImporter = false
-    /// The version list, and the pairing-file choice, as sheets opened from the
-    /// install menu's chips.
-    @State private var showVersionPicker = false
+    /// The pairing-file choice, as a sheet opened from the install menu's chip.
     @State private var showPairingOptions = false
+    /// The signing configuration's expander under the install menu.
+    @State private var signingExpanded = false
     /// When false, the timeline shows only the current step.
     @State private var stepsExpanded = false
     /// True while the Install button is held down. Its surface is drawn outside
@@ -119,9 +119,6 @@ struct ContentView: View {
                 .ignoresSafeArea()
             }
             .sheet(isPresented: $showAppConfig) { AppConfigView() }
-            .sheet(isPresented: $showVersionPicker) {
-                ReleaseVersionSheet(engine: engine, source: engine.installSource)
-            }
             .sheet(isPresented: $showPairingOptions) {
                 PairingOptionsSheet(engine: engine)
             }
@@ -420,90 +417,215 @@ struct ContentView: View {
         clipboardURL = link
     }
 
-    /// The install menu: what to install, how it's customised, and which
-    /// release — all above the Install button, so an advanced install is set up
-    /// before the run instead of found afterwards.
+    /// The install menu: a preset and its version in one row, a custom `.ipa`
+    /// under them, and the signing configuration folded away below — where an
+    /// advanced install is set up before the run, not after it.
     private var installCard: some View {
         PanelCard {
             VStack(alignment: .leading, spacing: 14) {
                 sectionTitle(L("Install"), systemImage: "square.and.arrow.down.fill")
 
-                InstallSourceChooser(source: $engine.installSource, disabled: engine.isRunning)
-
-                // A custom IPA has no release, so the importer takes that slot;
-                // a build with no nightly has nothing to pick and no slot.
-                if engine.installSource == .custom {
-                    importControl.transition(.opacity)
-                } else if engine.installSource.hasNightly {
-                    Picker(L("Release"), selection: $engine.releaseChannel) {
-                        ForEach(ReleaseChannel.allCases) { channel in
-                            Text(channel.displayName).tag(channel)
-                        }
+                HStack(spacing: 10) {
+                    presetMenu
+                    if engine.installSource != .custom {
+                        versionMenu
                     }
-                    .pickerStyle(.segmented)
-                    .transition(.opacity)
                 }
 
+                // A custom .ipa is a different kind of choice — no release, no
+                // channel — so it's a button of its own under the preset row.
+                customIPAButton
+                if engine.installSource == .custom {
+                    importControl.transition(.opacity)
+                }
+
+                signingSection
+
                 Divider().opacity(0.15)
-                optionChips
+
+                // What an install needs outside the build itself.
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        if engine.canSelfPair {
+                            InstallOptionChip(icon: "lock.doc.fill",
+                                              title: L("Pairing"),
+                                              value: engine.importedPairingName ?? L("Automatic")) {
+                                showPairingOptions = true
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 2)
+                }
             }
             // On the whole card, so it also resizes smoothly when a slot goes.
             .animation(.smooth(duration: 0.28), value: engine.installSource)
         }
         .disabled(engine.isRunning)
-        // The chips name the release, so the catalog is fetched when the card
-        // appears rather than only when the version sheet opens.
+        // The menus name the release, so the catalog is fetched when the card
+        // appears rather than when one is opened.
         .task(id: engine.installSource) {
             guard engine.installSource != .custom else { return }
             await engine.loadReleaseCatalog(for: engine.installSource)
         }
     }
 
-    /// What the install carries, each chip opening the page that sets it. The
-    /// values are the state, so the menu doubles as the receipt.
-    private var optionChips: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
+    /// The three builds SideInstaller knows how to fetch, in a menu.
+    private var presetMenu: some View {
+        Menu {
+            Picker(L("Build"), selection: $engine.installSource) {
+                Text("SideStore").tag(InstallSource.sideStore)
+                Text("SideStore + LiveContainer").tag(InstallSource.liveContainer)
+                Text("Madeira").tag(InstallSource.madeira)
+            }
+        } label: {
             HStack(spacing: 8) {
-                if engine.installSource == .custom {
-                    InstallOptionChip(icon: "slider.horizontal.3",
-                                      title: L("Configuration"),
-                                      value: configurationChipValue,
-                                      tint: appConfig.config.summary.isEmpty
-                                            ? Theme.accent2 : .green) {
-                        showAppConfig = true
-                    }
-                } else {
-                    InstallOptionChip(icon: "clock.arrow.circlepath",
-                                      title: L("Version"),
-                                      value: versionChipValue) {
-                        showVersionPicker = true
-                    }
+                Image(systemName: "shippingbox.fill")
+                    .font(.caption)
+                    .foregroundStyle(Theme.accent2)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(L("Build"))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    Text(engine.installSource == .custom ? L("Custom .ipa")
+                                                         : engine.installSource.shortName)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
                 }
-                if engine.canSelfPair {
-                    InstallOptionChip(icon: "lock.doc.fill",
-                                      title: L("Pairing"),
-                                      value: engine.importedPairingName ?? L("Automatic")) {
-                        showPairingOptions = true
-                    }
+                Spacer(minLength: 4)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .frame(maxWidth: .infinity)
+            .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.primary.opacity(0.06)))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.08)))
+            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// The release to install, right beside the build it belongs to.
+    private var versionMenu: some View {
+        let source = engine.installSource
+        let catalog = engine.releaseCatalogs[source]
+        let latest = catalog?.latest[engine.selectedChannel]
+        return Menu {
+            Picker(L("Version"), selection: $engine.selectedVersion) {
+                Text(latestLabel(latest)).tag(ReleaseVersion?.none)
+                ForEach(catalog?.others[engine.selectedChannel] ?? []) { version in
+                    Text(version.menuTitle).tag(Optional(version))
                 }
             }
-            .padding(.horizontal, 2)
+        } label: {
+            HStack(spacing: 6) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(L("Version"))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    Text(engine.selectedVersion?.title ?? latestLabel(latest))
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                }
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.primary.opacity(0.06)))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.08)))
+            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    /// Selecting the custom build, and naming what's loaded.
+    private var customIPAButton: some View {
+        Button {
+            engine.installSource = .custom
+            if engine.customIPAName == nil, !engine.isImportingIPA { showImporter = true }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: engine.installSource == .custom
+                      ? "doc.badge.plus.fill" : "doc.badge.plus")
+                    .font(.footnote)
+                    .foregroundStyle(engine.installSource == .custom ? Theme.accent2 : .secondary)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(L("Custom .ipa"))
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text(engine.customIPAName ?? L("Choose a file or paste a link"))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                Spacer(minLength: 6)
+                if engine.installSource == .custom {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(Theme.accent2)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(engine.installSource == .custom ? Theme.accent.opacity(0.14)
+                                                      : Color.primary.opacity(0.05)))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(engine.installSource == .custom ? Theme.accent.opacity(0.5)
+                                                              : Color.primary.opacity(0.06)))
+            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// The signing configuration, folded away until it's wanted: identity,
+    /// plists, capabilities, libraries and tweaks.
+    private var signingSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Button {
+                withAnimation(.smooth(duration: 0.3)) { signingExpanded.toggle() }
+            } label: {
+                HStack(spacing: 8) {
+                    Label(L("Signing configuration"), systemImage: "signature")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 6)
+                    Text(signingSummary)
+                        .font(.caption2)
+                        .foregroundStyle(appConfig.config.summary.isEmpty ? .tertiary : Theme.accent2)
+                        .lineLimit(1)
+                    Image(systemName: "chevron.down")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                        .rotationEffect(.degrees(signingExpanded ? 180 : 0))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if signingExpanded {
+                InstallSigningPanel()
+                    .transition(.opacity.combined(with: .offset(y: -4)))
+            }
         }
     }
 
-    /// The release the Install button will take: what's picked, or the newest
-    /// of the channel.
-    private var versionChipValue: String {
-        let source = engine.installSource
-        let latest = engine.releaseCatalogs[source]?.latest[engine.selectedChannel]
-        return engine.selectedVersion?.title ?? latestLabel(latest)
-    }
-
-    /// How much of the app configuration changes the build, in the space a chip
-    /// has: a count, or the word for none.
-    private var configurationChipValue: String {
+    /// A line for the expander's header: how much of the configuration differs
+    /// from the build's own values.
+    private var signingSummary: String {
         let changes = appConfig.config.summary.count
-        return changes == 0 ? L("Default") : L("%d changes", changes)
+        if changes == 0 { return L("Default") }
+        return L("%d change(s)", changes)
     }
 
     /// The two ways in for a custom build: pick a file, or paste a link.

@@ -832,18 +832,20 @@ struct AppsView: View {
 
     /// Shows the "Refresh all" confirmation alert.
     @State private var confirmRefresh = false
+    /// The updates sheet, opened from the toolbar's download icon.
+    @State private var showUpdates = false
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 18) {
+            VStack(spacing: 14) {
                 header.cascadeItem(0)
-                refreshAllButton
-                updateAllButton
-                loadButton
                 jitCard
                 refreshRunCard
                 // Errors show as a popup, which `RootView` lays over the app.
                 appList
+                // The two page-wide actions live at the foot of the list now:
+                // the top of the page is the search field and the apps.
+                refreshAllFooter
                 refreshNote
             }
             .padding(20)
@@ -856,7 +858,9 @@ struct AppsView: View {
         .background(AppBackground())
         .searchable(text: $search, prompt: Text(L("Search installed apps")))
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                updatesToolbarButton
+                reloadToolbarButton
                 Menu {
                     Picker(L("Sort by"), selection: $sort) {
                         ForEach(Sort.allCases) { order in
@@ -866,6 +870,11 @@ struct AppsView: View {
                 } label: {
                     Image(systemName: "arrow.up.arrow.down")
                 }
+            }
+        }
+        .sheet(isPresented: $showUpdates) {
+            UpdatesSheet(manager: manager, updates: updates) { batch in
+                Task { await updateAll(batch.map { ($0.status, $0.version, $0.url) }) }
             }
         }
         .sheet(item: $infoTarget) { status in
@@ -919,17 +928,69 @@ struct AppsView: View {
         }
     }
 
-    // MARK: Primary action
+    // MARK: Toolbar actions
 
-    /// "Refresh all" button, shown when at least one app can be refreshed.
+    /// What's newer in the sources, newest first — the list the sheet shows and
+    /// the count the icon carries.
+    private var updates: [AppUpdate] {
+        manager.entries.compactMap { status in
+            guard let candidate = updateCandidate(for: status) else { return nil }
+            return AppUpdate(status: status, version: candidate.version, url: candidate.url)
+        }
+    }
+
+    /// The updates entry point: a download symbol with how many are waiting.
+    private var updatesToolbarButton: some View {
+        Button { showUpdates = true } label: {
+            HStack(spacing: 2) {
+                Image(systemName: updates.isEmpty ? "arrow.down.circle" : "arrow.down.circle.fill")
+                if !updates.isEmpty {
+                    Text("\(updates.count)")
+                        .font(.caption2.weight(.bold))
+                        .monospacedDigit()
+                }
+            }
+        }
+        .disabled(!manager.hasLoaded)
+        .accessibilityLabel(updates.isEmpty
+                            ? L("Updates")
+                            : L("%d updates available", updates.count))
+    }
+
+    /// Reading the device again, from the toolbar so the page opens on the list.
+    /// While a refresh runs it becomes the way to stop it.
     @ViewBuilder
-    private var refreshAllButton: some View {
+    private var reloadToolbarButton: some View {
+        if manager.isRefreshing {
+            Button { manager.cancelRefresh() } label: {
+                Image(systemName: "xmark.circle")
+            }
+            .accessibilityLabel(L("Cancel the refresh"))
+        } else if manager.isWorking {
+            ProgressView().controlSize(.small)
+        } else {
+            Button { manager.load() } label: {
+                Image(systemName: manager.hasLoaded ? "arrow.clockwise" : "iphone.and.arrow.forward")
+            }
+            .disabled(manager.isRefreshing)
+            .accessibilityLabel(manager.hasLoaded ? L("Reload") : L("Load apps"))
+        }
+    }
+
+    /// Re-signing every refreshable app, under the list rather than above it.
+    @ViewBuilder
+    private var refreshAllFooter: some View {
         if manager.hasLoaded && !manager.refreshable.isEmpty {
-            VStack(spacing: 8) {
+            VStack(spacing: 6) {
+                // Only the install step reports progress.
+                if manager.isRefreshing, engine.installProgress > 0, engine.installProgress < 1 {
+                    ProgressView(value: engine.installProgress)
+                        .tint(Theme.accent2)
+                }
                 Button { confirmRefresh = true } label: {
-                    HStack(spacing: 10) {
+                    HStack(spacing: 8) {
                         if manager.isRefreshing {
-                            ProgressView().tint(.white)
+                            ProgressView().controlSize(.small)
                             Text(manager.refreshStatus ?? L("Getting ready"))
                                 .lineLimit(1)
                         } else {
@@ -938,53 +999,20 @@ struct AppsView: View {
                         }
                     }
                 }
-                .buttonStyle(PrimaryButtonStyle())
+                .buttonStyle(SecondaryButtonStyle())
                 .disabled(manager.isRefreshing || manager.isWorking)
-                // Only the install step reports progress.
-                if manager.isRefreshing, engine.installProgress > 0, engine.installProgress < 1 {
-                    ProgressView(value: engine.installProgress)
-                        .tint(Theme.accent2)
-                }
                 Text(manager.refreshable.count == 1
                      ? L("%d app can be signed again from an IPA already on this iPhone.",
                          manager.refreshable.count)
                      : L("%d apps can be signed again from IPAs already on this iPhone.",
                          manager.refreshable.count))
-                    .font(.caption)
+                    .font(.caption2)
                     .foregroundStyle(.tertiary)
                     .multilineTextAlignment(.center)
             }
+            .padding(.top, 6)
             .transition(.cardAppear)
-            .cascadeItem(1)
-        }
-    }
-
-    /// Load/Reload button: primary style until "Refresh all" is available, then
-    /// secondary. Becomes Cancel during a refresh.
-    @ViewBuilder
-    private var loadButton: some View {
-        if manager.isRefreshing {
-            Button(role: .cancel) { manager.cancelRefresh() } label: {
-                Text(L("Cancel")).frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.large)
-            .tint(Theme.accent)
-            .cascadeItem(2)
-        } else if manager.hasLoaded && !manager.refreshable.isEmpty {
-            Button { manager.load() } label: {
-                loadLabel(spinner: Theme.accent).frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.large)
-            .tint(Theme.accent)
-            .disabled(manager.isWorking || manager.isRefreshing)
-            .cascadeItem(2)
-        } else {
-            Button { manager.load() } label: { loadLabel(spinner: .white) }
-                .buttonStyle(PrimaryButtonStyle())
-                .disabled(manager.isWorking || manager.isRefreshing)
-                .cascadeItem(2)
+            .cascadeItem(6)
         }
     }
 
@@ -999,25 +1027,6 @@ struct AppsView: View {
         }
     }
 
-    private func loadLabel(spinner: Color) -> some View {
-        HStack(spacing: 10) {
-            if manager.isWorking {
-                ProgressView().tint(spinner)
-                Text(L("Reading the device"))
-            } else {
-                Image(systemName: manager.hasLoaded ? "arrow.clockwise" : "iphone.and.arrow.forward")
-                    .contentTransition(.symbolEffect(.replace))
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(manager.hasLoaded ? L("Reload") : L("Load apps"))
-                    if manager.hasLoaded, let date = manager.lastRefreshed, !manager.isWorking {
-                        Text(L("read %@", Self.shortSince(date)))
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                    }
-                }
-            }
-        }
-    }
 
     // MARK: Refresh run
 
@@ -1208,38 +1217,6 @@ struct AppsView: View {
     /// The listed apps of one kind, in the order the manager sorted them.
     private func group(of kind: SideloadedApp.Kind) -> [SideloadedAppStatus] {
         manager.entries.filter { $0.app.kind == kind }
-    }
-
-    /// Installs the newest release of every app a source carries newer than what's
-    /// on the device. One at a time: installs share the device link and Apple's
-    /// rate limit.
-    @ViewBuilder
-    private var updateAllButton: some View {
-        let updates = manager.entries.compactMap { status -> (SideloadedAppStatus, String, URL)? in
-            guard let update = updateCandidate(for: status) else { return nil }
-            return (status, update.version, update.url)
-        }
-        if !updates.isEmpty {
-            PanelCard {
-                VStack(alignment: .leading, spacing: 10) {
-                    Label(L("%ld update(s) available", updates.count), systemImage: "arrow.down.circle")
-                        .font(.subheadline.weight(.semibold))
-                    Text(L("Newer releases in your sources: %@.", updates.prefix(4).map(\.0.app.name).joined(separator: ", ")))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Button {
-                        Task { await updateAll(updates) }
-                    } label: {
-                        Label(L("Install all updates"), systemImage: "square.and.arrow.down")
-                            .font(.footnote.weight(.semibold))
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(engine.isRunning || manager.isRefreshing)
-                }
-            }
-        }
     }
 
     /// Installs each newer release in turn. The engine's one-click run handles

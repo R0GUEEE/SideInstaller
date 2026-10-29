@@ -9,7 +9,7 @@ enum ToolDestination: String, Identifiable, Hashable {
     case device, location
     case certificates, entitlements, pairing, sideBySide
     case history, storedBuilds, injectedLibraries, inspectIPA
-    case sources, tweakBrowser
+    case sources, tweakBrowser, tweakLibrary
     case settings, report, about
 
     var id: String { rawValue }
@@ -146,6 +146,8 @@ struct ToolsView: View {
 
     /// The two stores whose contents are a row's status line.
     @ObservedObject private var tweakRepos = TweakRepoStore.shared
+    /// The local tweak library, for the storage row's count.
+    @ObservedObject private var tweakLibrary = TweakLibrary.shared
     @ObservedObject private var history = InstallHistory.shared
 
     /// The sheet a row opens, when the page it opens owns its own stack.
@@ -376,6 +378,14 @@ struct ToolsView: View {
                             : L("%d repository(s)", tweakRepos.repos.count),
                       icon: "syringe",
                       destination: .tweakBrowser),
+            ToolEntry(id: "tweakLibrary",
+                      title: L("Tweak storage"),
+                      detail: tweakLibrary.items.isEmpty
+                            ? L("Keep .dylib and .deb files, and bundles of them")
+                            : L("%d tweak(s) · %d bundle(s)",
+                                tweakLibrary.items.count, tweakLibrary.bundles.count),
+                      icon: "tray.full",
+                      destination: .tweakLibrary),
         ]
 
         let help: [ToolEntry] = [
@@ -476,6 +486,7 @@ struct ToolsView: View {
         case .inspectIPA:       IPAInspectorView()
         case .sources:          SourceManagerView(store: sourceStore)
         case .tweakBrowser:     TweakBrowserView(store: AppConfigStore.shared)
+        case .tweakLibrary:     TweakLibraryView()
         case .settings:         SettingsView()
         case .report:           ReportProblemView()
         case .about:            AboutView(showsDone: true)
