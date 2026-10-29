@@ -1844,3 +1844,33 @@ bounds what it allocates.
 - **The Install button is deliberately excluded.** It isn't a row action: the same surface grows
   into the run's progress card, and its height and corners are part of that animation. Shrinking it
   would have made the app's main action the smallest thing on the screen.
+
+### My Apps: the page opens on the apps
+
+- **Three page-wide buttons and two cards sat above the list** — Refresh all, Install all updates,
+  Reload, the JIT card and the refresh-run card. The actions that concerned the whole list are now
+  in the toolbar or under it: updates behind an icon with a count, reload as an icon, refresh all
+  below the last row. The top of the page is the search field and the apps, which is what it's for.
+- **The updates sheet is a list, not a card.** Each row carries the app's icon, `1.2 → 1.6` in
+  monospace and its own install button; the bottom button installs all of them in the same order the
+  card did. `updateAll` still sequences them one at a time — they share the device link and Apple's
+  rate limit.
+- **`preloadIcons()`** runs `loadIcons` for whatever the list already holds, so PNGs cached on disk
+  fill the column before (or without) a device read. That was the difference between a row with an
+  icon and a row with a letter.
+
+### Install menu: presets, then everything else
+
+- **A dropdown and a version menu share a row** because they're one decision: what to install, and
+  which release of it. The dropdown only lists the three builds SideInstaller can fetch; the custom
+  `.ipa` is a separate button because it isn't a release at all.
+- **`InstallSigningPanel`** is the expander's body, and each section states the honest limit: the
+  identity fields keep the build's own value when empty, a capability writes the keys the app
+  expects but the profile decides what's granted, and an injector is only downloadable for the two
+  that are open source.
+- **`AppCapability`** maps a switch to plist keys and entitlements, and its disable path removes
+  only the value it wrote from a list (`UIBackgroundModes` keeps `location` when `audio` goes),
+  rather than deleting the key someone else may have set.
+- **Tweak storage is its own store** (`TweakLibrary`) with a JSON index beside the files; applying
+  goes through `AppConfigStore.addTweaks`, so the library can't disagree with the configuration
+  about what a `.deb` contributes.

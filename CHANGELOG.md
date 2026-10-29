@@ -4,6 +4,29 @@ All notable changes to SideInstaller are documented here.
 
 ## Unreleased
 
+### Added
+- **Tweak storage (Tools › Tweak storage).** A place for tweaks that aren't in a build yet: `.dylib`
+  files and `.deb` packages, kept in `Application Support/TweakLibrary`, plus **bundles** — named
+  sets of them — so "my setup" can be added to a build in one tap. Applying an item copies it into
+  the app configuration, the same path a picked file takes.
+
+### Changed
+- **My Apps is a list again.** The top of the page was a stack of page-wide buttons; now it opens on
+  the apps. **Updates** moved behind a download icon in the toolbar with the count beside it, and
+  the sheet it opens lists each newer release with the app's icon, its old and new version, and an
+  install button per row plus one for all of them. **Reload** is a toolbar icon (it becomes the way
+  to cancel a run), and **Refresh all** sits under the list with its caption, where it belongs after
+  you've seen what needs it. Icons now fill from the disk cache as soon as the page appears, so a
+  restored list doesn't sit on placeholder squares.
+- **The install menu is rebuilt around an advanced install.** The build presets are a dropdown with
+  the **version selector beside it**, the **custom `.ipa`** is a button of its own underneath, and
+  everything that shapes the signed build is in one expandable **Signing configuration**: app name
+  and bundle ID, Info.plist and entitlement editors, **capability switches** (document browser,
+  background audio and location, increased memory limit, Wi-Fi info), frameworks and dylibs
+  (with the tweak storage and the browser beside them), the tweaks already added — and the
+  **injection frameworks**, with ElleKit/Substitute downloadable and CydiaSubstrate/libhooker added
+  from a file, plus a warning naming whatever an added tweak needs.
+
 ### Changed
 - **The action buttons are one size again.** The shared primary button dropped from a 52-point slab
   (headline, 16pt of air, 18-point corners) to a 40-point row: `subheadline` semibold, 12 points of
