@@ -5,6 +5,13 @@ All notable changes to SideInstaller are documented here.
 ## Unreleased
 
 ### Changed
+- **Downloads reads as a list of apps, compactly.** Each row shows the app's own name — read from the
+  `.ipa`'s `Info.plist`, so a file downloaded as `com.burbn.instagram.ipa` reads Instagram — with its
+  size and date on one line, and **Configure** and **Install** at the end of the row instead of a
+  second line of buttons. A search field sits at the top of the page, filtering by app name or file
+  name; share and delete moved into each row's menu.
+
+### Changed
 - **A marketplace download lands in the install menu instead of installing itself.** Both the row's
   download button and the app page's primary button now fetch the release and hand it to the Install
   tab as the custom build, so its name, capabilities and tweaks can be set before signing. The
