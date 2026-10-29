@@ -1874,3 +1874,23 @@ bounds what it allocates.
 - **Tweak storage is its own store** (`TweakLibrary`) with a JSON index beside the files; applying
   goes through `AppConfigStore.addTweaks`, so the library can't disagree with the configuration
   about what a `.deb` contributes.
+
+### Bulk install, and why the files are copied first
+
+- **A picker URL is a lease, not a path.** `startAccessingSecurityScopedResource()` ends when the
+  picker closes, so a queued URL would be unreadable by the time the queue reached it.
+  `BulkInstallStage` copies each file into `Application Support/BulkInstall` first, and
+  `prune(keeping:)` deletes copies whose item has left the queue.
+- **The queue already existed**, from the "install queue" work: it starts a build, waits for
+  `Engine.isRunning` to clear, records done/failed and pauses two seconds between items. Bulk install
+  only needed `run()` to take a file URL through `installLocalIPA` instead of the link path.
+
+### Settings adopted, then cleared
+
+- **Adoption is deliberately partial.** `AppConfigStore.adopt(info:entitlements:)` takes the identity
+  and the five capabilities the panel can express; copying every `Info.plist` key would be noise,
+  and copying the build's entitlements would write back a document the signing profile replaces.
+- **Clearing happens at one place**: the end of `runOneClick`, after `stopBackgroundWork()`. That
+  covers success, failure and cancellation without three call sites drifting, and it's what makes
+  back-to-back installs safe — the second app can't inherit the first one's bundle ID, capability
+  edits or injected dylibs. `reset()` deliberately leaves injectors alone.

@@ -5,6 +5,22 @@ All notable changes to SideInstaller are documented here.
 ## Unreleased
 
 ### Added
+- **Bulk install.** Under the custom `.ipa` button, **Bulk install** takes several files at once and
+  puts them in the install queue, one after another — the queue card on the Install tab shows each
+  one's state. A picker's file stops being readable when the picker closes, so each is copied into
+  the app's own staging folder first, and the copies are pruned once their item leaves the queue.
+- **The signing configuration is filled in from the build.** Picking an `.ipa` now reads its
+  `Info.plist` and entitlements (off the main actor) and seeds the panel: app name, bundle ID,
+  version and build, and the capability switches it already declares — document browser, background
+  audio and location, increased memory, Wi-Fi info. Only what the panel can express is taken; the
+  build's whole plist would be hundreds of keys, and its entitlements are re-issued by the profile.
+- **The configuration is cleared when a run ends**, successful or not: identity, plist and
+  entitlement edits, capabilities and the injected tweak copies. The next install starts from its
+  own build instead of inheriting the last app's name, entitlements and tweaks. Injectors stay (a
+  framework isn't part of one app), and Tweak storage keeps its own copies, so a set can be applied
+  again in one tap.
+
+### Added
 - **Tweak storage (Tools › Tweak storage).** A place for tweaks that aren't in a build yet: `.dylib`
   files and `.deb` packages, kept in `Application Support/TweakLibrary`, plus **bundles** — named
   sets of them — so "my setup" can be added to a build in one tap. Applying an item copies it into
