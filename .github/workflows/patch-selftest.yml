@@ -71,6 +71,13 @@ jobs:
             > "$APP/Watch/WatchApp.app/Info.plist"
           mkdir -p "$APP/Watch/WatchApp.app/Watch"
           echo "a resource that must survive patching" > "$APP/Resource.txt"
+          # An empty member. Rebuilding the archive used to fail at the first one
+          # with "the archive is damaged around <path>", because copying a
+          # zero-length member asked FileHandle for zero bytes and treated the
+          # (empty) answer as a read failure. A bundled Python stdlib is full of
+          # these, so a real .ipa hit it immediately.
+          mkdir -p "$APP/python/lib/python3.13/test"
+          : > "$APP/python/lib/python3.13/test/__init__.py"
 
           cd "$WORK/root"
           zip -qry "$WORK/Test.ipa" Payload
@@ -132,6 +139,15 @@ jobs:
           cd "$WORK"
           echo "::group::zip integrity"
           unzip -tq Test.ipa
+          echo "::endgroup::"
+          echo "::group::zero-byte member"
+          rm -rf "$WORK/zero" && mkdir -p "$WORK/zero"
+          unzip -q -o Test.ipa '*python/lib/python3.13/test/__init__.py' -d "$WORK/zero"
+          EMPTY=$(find "$WORK/zero" -type f -name __init__.py | head -1)
+          # The bundle directory may be renamed by the patch, so match on the tail
+          # of the path rather than the app's name.
+          test -n "$EMPTY" || { echo "::error::the zero-byte member did not survive the rewrite"; exit 1; }
+          test ! -s "$EMPTY" || { echo "::error::the zero-byte member came back with content"; exit 1; }
           echo "::endgroup::"
 
           echo "::group::contents"
