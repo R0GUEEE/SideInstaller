@@ -128,6 +128,22 @@ Each source is cached, so the list opens without a network and says so when a re
 Builds downloaded from a link or a source are put through the same check before signing, so an
 encrypted App Store copy is refused instead of using up an App ID.
 
+## Tools
+
+The **Tools** tab is the menu of everything that isn't an install, grouped and searchable:
+
+- **Device** — model, iOS build, UDID and storage; location spoofing.
+- **Signing** — certificates (the row shows when the signing certificate expires, in orange as it
+  gets close), entitlements per App ID, pairing, and Side by Side.
+- **Apps & builds** — install history with rollback, Stored builds with the space they take, the
+  injected-libraries inspector and stripper, and Inspect .ipa.
+- **Sources & tweaks** — the marketplace's source list, and the tweak browser with its repository
+  list.
+- **Help** — Report a problem (log, crash logs and a prefilled GitHub issue) and About.
+
+Every row names its page's state, so the tab is also a dashboard: what's expiring, what's stored,
+what's configured. The search field filters the rows by name or by what they say.
+
 ## The install menu
 
 The Install tab is the whole setup, in one card above the button:

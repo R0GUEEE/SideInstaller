@@ -1760,3 +1760,24 @@ weakly in their callbacks.
   been visited once.
 - **`AppConfigView` is unchanged** — it was already the page the Configuration chip opens. The card
   only gained the chip, which counts `config.summary` so the change is visible without opening it.
+
+### Tools tab: rows as data
+
+- **`ToolEntry` is the page.** Title, status line, glyph, beta flag and destination live in one
+  struct, and `ToolsView` renders sections from an array of them. Search (`haystack`), the section
+  headers and the row count all derive from that list, so a page can't be added without a status line
+  and can't be findable in search but missing from the menu.
+- **One switch builds every destination** (`page(_:)`), so a row's `ToolDestination` and the view it
+  opens can't drift. Pages that own a `NavigationStack` (Sources, Report, About) say so
+  (`presentsAsSheet`) and are presented instead of pushed — pushing one would nest a second stack.
+- **Status comes from the stores, not from the page.** Certificates read `certManager.certs` for the
+  signing certificate's expiry, stored builds read `IPACache.all()` **on appear** (it's a directory
+  listing; a body is not the place), history reads `InstallHistory.shared.entries`, sources and
+  tweak repositories read their published arrays. The only coloured detail is a certificate that is
+  close to expiring or has expired.
+- **Grouping is by what you're doing, not by data source**: "Signing" holds entitlement editing and
+  pairing because they're the three things that decide whether a build installs at all; the
+  inspector sits with builds, not with files.
+- **Why About/Report moved here**: both already existed as sheets opened from Settings or from
+  another page's toolbar. A menu of pages is the honest place for them, and duplicating the entry
+  costs nothing — they're the same views.

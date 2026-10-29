@@ -5,6 +5,15 @@ All notable changes to SideInstaller are documented here.
 ## Unreleased
 
 ### Changed
+- **The Tools tab is grouped, searchable, and says what's in each page.** Thirteen pages now sit in
+  five sections — Device, Signing, Apps & builds, Sources & tweaks, Help — with a search field over
+  all of them, and each row carries its own status: the signing certificate's expiry (in orange when
+  it's close), how many builds are recorded, how much sits in Stored builds, how many sources and
+  repositories are configured, the app's version. **Marketplace sources**, **Report a problem** and
+  **About** are reachable from here now instead of only through Settings or a sheet inside another
+  page.
+
+### Changed
 - **The install menu is the whole setup, above the Install button.** The build is now four cards
   (SideStore, SideStore + LiveContainer, Madeira, Custom .ipa) instead of a dropdown, and what the
   install carries is a row of chips that say what they're set to: **Version** (the release, as a list
