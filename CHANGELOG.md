@@ -5,6 +5,14 @@ All notable changes to SideInstaller are documented here.
 ## Unreleased
 
 ### Added
+- **A tweak browser.** **App configuration › Tweaks & injectors › Browse** (also **Tools › Tweak
+  browser**) reads any Sileo/Cydia repository — Havoc and Chariz are there to start with — and adds a
+  package straight to the configuration: search by name, identifier, developer or section, tap a
+  package for its description and dependencies, and its `.deb` is downloaded once and handed to the
+  same path a picked file takes. Indexes are cached, so the page opens offline and says when a
+  refresh failed; a package's SHA-256 is checked against the index when it publishes one.
+
+### Added
 - **Quality-of-life pass:**
   - **My Apps has a search field** (name, bundle ID or App ID) and a sort toggle between expiry and
     name, so a device with forty sideloaded apps is navigable.

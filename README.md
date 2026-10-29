@@ -126,6 +126,19 @@ Each source is cached, so the list opens without a network and says so when a re
 Builds downloaded from a link or a source are put through the same check before signing, so an
 encrypted App Store copy is refused instead of using up an App ID.
 
+## Tweak browser
+
+**Tools › Tweak browser** is the same list **App configuration › Tweaks & injectors › Browse**
+opens: every package the repositories you add publish, searchable by name, bundle identifier,
+developer or section, with each repository's index kept on the device so the list is there offline.
+
+A package is added the way a `.deb` picked from Files is — its libraries are taken out and loaded by
+the app at launch — and nothing is installed to the system or to another app. The download is
+checked against the index's SHA-256 when the repository publishes one, and a package built for
+another platform is left out of the list rather than offered. Anything that names ElleKit,
+Substrate, libhooker or Substitute in its dependencies picks which framework the app loads beside it,
+so the missing-injector warning on the configuration page still applies.
+
 ## App configuration
 
 **Install › Advanced › App configuration** changes what goes into a custom `.ipa` before it's
@@ -139,7 +152,10 @@ is prepared the same way each time.
   entitlement written into the app's archived entitlements file (the profile your Apple ID issues
   still decides what's actually granted).
 - **Extensions** — switch off individual extensions, or remove them all, and drop the Watch app.
-- **Tweaks** — add `.dylib` files or `.deb` packages. A package is unpacked and the libraries it
+- **Tweaks** — add `.dylib` files or `.deb` packages, or pick one out of a repository with
+  **Browse**: any Sileo/Cydia repository (Havoc and Chariz are there to start with) is read and
+  searched by name, identifier, developer or section, and a package's dependencies are shown before
+  it's added. A package is unpacked and the libraries it
   installs are taken; each library is copied into the app's `Frameworks` folder and loaded by its
   main executable through an added `LC_LOAD_DYLIB` (`LC_LOAD_WEAK_DYLIB` with **Optional** on).
   Rootful and rootless packages both work. Tweaks have to be built for this iPhone — arm64, iOS

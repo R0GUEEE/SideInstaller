@@ -26,6 +26,7 @@ struct AppConfigView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var showTweakPicker = false
+    @State private var showTweakBrowser = false
     @State private var showConfigImporter = false
     @State private var note: String?
     @State private var injectedFor: TweakInjectorKind?
@@ -93,6 +94,9 @@ struct AppConfigView: View {
                         : L("Couldn't add %@.", result.failed.joined(separator: ", "))
                 }
                 .ignoresSafeArea()
+            }
+            .sheet(isPresented: $showTweakBrowser) {
+                TweakBrowserView(store: store)
             }
             .sheet(item: $injectedFor) { kind in
                 FileImporterRepresentableView(allowedContentTypes: [.dylib]) { urls in
@@ -693,6 +697,15 @@ struct AppConfigView: View {
                 HStack {
                     header(L("Tweaks & injectors"), systemImage: "syringe")
                     Spacer()
+                    // The repository browser is the same action as picking a
+                    // file, for a tweak found by name instead of by download.
+                    Button {
+                        showTweakBrowser = true
+                    } label: {
+                        Label(L("Browse"), systemImage: "magnifyingglass")
+                            .font(.footnote.weight(.semibold))
+                    }
+                    .buttonStyle(.borderless)
                     Button {
                         showTweakPicker = true
                     } label: {
