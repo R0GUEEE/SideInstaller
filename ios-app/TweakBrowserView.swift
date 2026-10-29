@@ -300,7 +300,7 @@ struct TweakBrowserView: View {
         let all = matches
         let shown = Array(all.prefix(200))
         return PanelCard {
-            VStack(alignment: .leading, spacing: 10) {
+            LazyVStack(alignment: .leading, spacing: 10) {
                 HStack {
                     Text(L("%d results", all.count))
                         .font(.footnote.weight(.semibold))

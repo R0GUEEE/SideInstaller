@@ -430,7 +430,9 @@ struct EntitlementsView: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 18) {
+            // A paid team can have hundreds of App IDs: built lazily, so the page
+            // opens at the same speed for ten or for two hundred.
+            LazyVStack(spacing: 18) {
                 header.cascadeItem(0)
                 loadButton.cascadeItem(1)
                 // Errors and results show as popups, which `RootView` lays
@@ -484,7 +486,7 @@ struct EntitlementsView: View {
         if manager.hasLoaded && manager.apps.isEmpty && !manager.isWorking {
             emptyApps.transition(.cardAppear)
         } else if !manager.apps.isEmpty {
-            VStack(spacing: 14) {
+            LazyVStack(spacing: 14) {
                 HStack {
                     Text(manager.apps.count == 1
                          ? L("%d App ID", manager.apps.count)
