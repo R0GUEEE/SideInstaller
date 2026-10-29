@@ -513,6 +513,44 @@ final class AppConfigStore: ObservableObject {
         return true
     }
 
+    /// Seeds the configuration from a build's own settings, so the signing
+    /// panel starts from what the app is rather than from empty fields.
+    ///
+    /// Only what the panel can express is taken: the identity it declares, and
+    /// the capabilities its plist and entitlements already grant. The build's
+    /// whole `Info.plist` would be hundreds of keys, and its entitlements are
+    /// re-issued by the profile Apple signs with, so copying them back would be
+    /// writing down a copy of a document that gets replaced.
+    func adopt(info: [String: Any], entitlements: [String: Any]) {
+        config.displayName = (info["CFBundleDisplayName"] as? String)
+            ?? (info["CFBundleName"] as? String) ?? ""
+        config.bundleIdentifier = info["CFBundleIdentifier"] as? String ?? ""
+        config.version = info["CFBundleShortVersionString"] as? String ?? ""
+        config.build = info["CFBundleVersion"] as? String ?? ""
+
+        let modes = (info["UIBackgroundModes"] as? [String]) ?? []
+        set(modes.contains("audio"), for: .backgroundAudio)
+        set(modes.contains("location"), for: .backgroundLocation)
+        set((info["UIFileSharingEnabled"] as? Bool) == true
+            || (info["LSSupportsOpeningDocumentsInPlace"] as? Bool) == true,
+            for: .documentBrowser)
+        set(entitlements["com.apple.developer.kernel.increased-memory-limit"] != nil,
+            for: .increasedMemory)
+        set(entitlements["com.apple.developer.networking.wifi-info"] != nil,
+            for: .wifiInfo)
+    }
+
+    /// Forgets what a run was given, once the run is over: identity, plist and
+    /// entitlement edits, capabilities, and the tweak copies it injected.
+    ///
+    /// The next install starts from its own build. Injectors stay — they're
+    /// frameworks, not part of any one app — and tweaks kept in Tweak storage
+    /// are untouched, so a set can be applied again in one tap.
+    func clearAfterInstall() {
+        guard config.isActive || !config.tweaks.isEmpty else { return }
+        reset()
+    }
+
     func reset() {
         let tweaks = config.tweaks
         config = AppConfig()

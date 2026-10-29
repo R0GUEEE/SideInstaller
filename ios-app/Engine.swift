@@ -740,6 +740,11 @@ final class Engine: ObservableObject {
                 outcome = .stopped
             }
             stopBackgroundWork()
+            // Whatever this run was configured with has been baked into the
+            // build (or abandoned with it). Clearing here is what keeps the
+            // next install from inheriting another app's identity, capabilities
+            // and tweaks.
+            AppConfigStore.shared.clearAfterInstall()
             isRunning = false
             isCancelling = false
             pairingPIN = nil
@@ -1731,6 +1736,9 @@ final class Engine: ObservableObject {
             setGuide(nil)
             log("Imported \(dest.lastPathComponent) (\(ByteCountFormatter.string(fromByteCount: Int64(fileSize(dest.path)), countStyle: .file))).")
             beginFreshInstallMenu()
+            // Read the build's own settings into the signing configuration, so
+            // the panel shows what this app is instead of the last one's values.
+            adoptBuildSettings(dest)
         } catch IPALibrary.ImportError.notAnIPA {
             // The picker accepts any file. Validation runs on a staged copy, so
             // the previous import is kept.
@@ -2594,6 +2602,18 @@ final class Engine: ObservableObject {
         json.map { si_string_free($0) }
         guard !payload.isEmpty else { throw EngineError.message("empty account config") }
         return payload
+    }
+
+    /// Parses a build's plists off the main actor and hands the values to the
+    /// configuration.
+    private func adoptBuildSettings(_ ipa: URL) {
+        Task.detached(priority: .userInitiated) {
+            guard let info = IPAPatch.readInfoPlist(from: ipa) else { return }
+            let entitlements = IPAPatch.readEntitlements(from: ipa) ?? [:]
+            await MainActor.run {
+                AppConfigStore.shared.adopt(info: info, entitlements: entitlements)
+            }
+        }
     }
 
     // MARK: Success

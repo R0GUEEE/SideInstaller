@@ -12,6 +12,8 @@ struct ContentView: View {
     @ObservedObject private var appConfig = AppConfigStore.shared
     @Environment(\.openURL) private var openURL
     @State private var showImporter = false
+    /// The multi-file picker behind Bulk install.
+    @State private var showBulkImporter = false
     /// The App configuration sheet (identity, structure, tweaks).
     @State private var showAppConfig = false
     /// True while the pairing-file picker is up.
@@ -115,6 +117,14 @@ struct ContentView: View {
                 FileImporterRepresentableView(allowedContentTypes: [.ipa]) { urls in
                     guard let url = urls.first else { return }   // empty means cancelled
                     Task { await engine.importCustomIPA(from: url) }
+                }
+                .ignoresSafeArea()
+            }
+            .sheet(isPresented: $showBulkImporter) {
+                FileImporterRepresentableView(allowedContentTypes: [.ipa],
+                                              allowsMultipleSelection: true) { urls in
+                    guard !urls.isEmpty else { return }
+                    queueBulk(urls)
                 }
                 .ignoresSafeArea()
             }
@@ -438,6 +448,7 @@ struct ContentView: View {
                 if engine.installSource == .custom {
                     importControl.transition(.opacity)
                 }
+                bulkInstallButton
 
                 signingSection
 
@@ -586,6 +597,67 @@ struct ContentView: View {
             .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
         .buttonStyle(.plain)
+    }
+
+    /// Several `.ipa` files at once, queued one after another: the engine signs
+    /// and installs one app at a time, so a queue is the only honest shape for
+    /// "these eight".
+    private var bulkInstallButton: some View {
+        Button {
+            showBulkImporter = true
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "square.stack.3d.down.right")
+                    .font(.footnote)
+                    .foregroundStyle(Theme.accent2)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(L("Bulk install"))
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text(queue.pending.isEmpty
+                         ? L("Queue several .ipa files at once")
+                         : L("%d waiting in the queue", queue.pending.count))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 6)
+                Image(systemName: "chevron.right")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.primary.opacity(0.05)))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.06)))
+            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .disabled(engine.isImportingIPA)
+    }
+
+    /// Stages the picked files and starts the line.
+    private func queueBulk(_ urls: [URL]) {
+        var queued = 0
+        for url in urls {
+            do {
+                let staged = try BulkInstallStage.stage(url)
+                if queue.add(name: staged.lastPathComponent, url: staged) {
+                    queued += 1
+                } else {
+                    try? FileManager.default.removeItem(at: staged)
+                }
+            } catch {
+                engine.log("⚠️ Couldn't queue \(url.lastPathComponent): \(error.localizedDescription)")
+            }
+        }
+        // Copies from earlier batches aren't needed once their item is gone.
+        BulkInstallStage.prune(keeping: queue.items.map(\.url))
+        guard queued > 0 else { return }
+        engine.log("Queued \(queued) .ipa file(s) to install one after another.")
+        queue.start()
     }
 
     /// The signing configuration, folded away until it's wanted: identity,

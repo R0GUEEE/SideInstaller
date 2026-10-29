@@ -92,7 +92,13 @@ final class InstallQueue: ObservableObject {
         while !Task.isCancelled, let next = items.first(where: { $0.state == .waiting }) {
             guard let index = items.firstIndex(where: { $0.id == next.id }) else { break }
             items[index].state = .installing
-            Engine.shared.installLinkedIPA(next.url)
+            // A queued file (bulk install) goes through the local path; a link
+            // is downloaded first. Both end with `runOneClick` doing the work.
+            if next.url.isFileURL {
+                Engine.shared.installLocalIPA(at: next.url)
+            } else {
+                Engine.shared.installLinkedIPA(next.url)
+            }
             // Wait for the run to end. The engine is the only thing that knows
             // when signing, pairing work and installation are all finished.
             var waited = 0.0
@@ -194,5 +200,44 @@ final class InstallHistory: ObservableObject {
               let entries = try? JSONDecoder().decode([Entry].self, from: data)
         else { return [] }
         return entries
+    }
+}
+
+
+/// Where a bulk install's files are put so the queue can read them later.
+///
+/// A picker's URL is security-scoped and stops being readable the moment the
+/// picker closes, so each file is copied out first. The copies are the queue's
+/// own; clearing them is the queue's business too, once the item is done.
+enum BulkInstallStage {
+
+    static var directory: URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory,
+                                            in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        return base.appendingPathComponent("BulkInstall", isDirectory: true)
+    }
+
+    /// Copies one picked file in, returning where it landed.
+    static func stage(_ url: URL) throws -> URL {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        let destination = directory.appendingPathComponent(url.lastPathComponent)
+        if FileManager.default.fileExists(atPath: destination.path) {
+            try FileManager.default.removeItem(at: destination)
+        }
+        try FileManager.default.copyItem(at: url, to: destination)
+        return destination
+    }
+
+    /// Deletes the copies for builds no longer in the queue.
+    static func prune(keeping urls: [URL]) {
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: directory.path)
+        else { return }
+        let keep = Set(urls.filter { $0.isFileURL }.map(\.lastPathComponent))
+        for name in names where !keep.contains(name) {
+            try? FileManager.default.removeItem(at: directory.appendingPathComponent(name))
+        }
     }
 }
