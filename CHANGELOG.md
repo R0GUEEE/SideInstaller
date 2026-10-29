@@ -4,6 +4,15 @@ All notable changes to SideInstaller are documented here.
 
 ## Unreleased
 
+### Changed
+- **Settings is part of the Tools tab.** The gear in the top-right corner of every screen is gone;
+  the page it opened is the first card of **Tools** now, above the search field, and still opens as
+  a sheet with the same **Done**. Its sub-pages (Account, Tunnel, Renewals, Storage, Telegram,
+  Marketplace, Activity log) are reached from there. Pages that used to offer the gear — Install,
+  Marketplace, My Apps, Certificates, Entitlements, Pairing, Location, Side by Side, Install
+  history, Stored builds, Inspect .ipa, Injected libraries, Tweak browser, About — simply don't any
+  more; there is one way in, and it's on a page whose job is the app's own controls.
+
 ### Fixed
 - **The Tools pages no longer do their heavy work while drawing.** Device info measured the app
   container — a walk of every file in it, documents and caches included — inside a `body`, so the

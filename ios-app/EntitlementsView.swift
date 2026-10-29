@@ -426,7 +426,6 @@ struct EntitlementsView: View {
     @EnvironmentObject private var loc: Localizer
     @ObservedObject var manager: EntitlementsManager
 
-    @State private var showSettings = false
 
     var body: some View {
         ScrollView {
@@ -446,8 +445,6 @@ struct EntitlementsView: View {
             .animation(.smooth(duration: 0.35), value: manager.teamSummary)
         }
         .background(AppBackground())
-        .toolbar { settingsToolbarItem(isPresented: $showSettings) }
-        .sheet(isPresented: $showSettings) { SettingsView() }
         .onAppear { manager.autoLoad() }
     }
 

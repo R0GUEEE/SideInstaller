@@ -1802,3 +1802,18 @@ Two rules came out of this and are worth keeping: **no file-system call in a `bo
 run tens of times a second while a text field has focus), and **no unbounded inflate of a member**
 — a zip entry's `uncompressedSize` is attacker-controlled in a downloaded `.ipa`, so the reader
 bounds what it allocates.
+
+### Settings, folded into Tools
+
+- **The gear was in fourteen toolbars.** `settingsToolbarItem(isPresented:)` was one extension
+  applied by every page, which made Settings look like a property of each screen — the one control
+  that doesn't change with context. It's now a single row at the top of **Tools**, a page that is
+  nothing but "the app's own stuff", presented as the same sheet with the same Done.
+- **What had to be true for the removal to be honest:** every page that lost its gear must still
+  have a way back to the tab bar (they're all pushed inside the tab's `NavigationStack`, or sheets
+  that dismiss), and the one page presented *only* as a sheet from Tools — About — needed its own
+  Done, so `AboutView(showsDone:)` was added (`false` when pushed from Settings, where the back
+  button already exists).
+- **Search doesn't hide it.** The Settings card is drawn only while the search field is empty, so a
+  search shows results only, but the entry itself is not a section entry and doesn't inflate the
+  "N pages" count — it's the app's control, not one of the pages being searched.

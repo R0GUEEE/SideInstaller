@@ -830,7 +830,6 @@ struct AppsView: View {
     /// The debugger-backed JIT session, shown in its own card.
     @ObservedObject private var jit = JITSession.shared
 
-    @State private var showSettings = false
     /// Shows the "Refresh all" confirmation alert.
     @State private var confirmRefresh = false
 
@@ -857,7 +856,6 @@ struct AppsView: View {
         .background(AppBackground())
         .searchable(text: $search, prompt: Text(L("Search installed apps")))
         .toolbar {
-            settingsToolbarItem(isPresented: $showSettings)
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Picker(L("Sort by"), selection: $sort) {
@@ -870,7 +868,6 @@ struct AppsView: View {
                 }
             }
         }
-        .sheet(isPresented: $showSettings) { SettingsView() }
         .sheet(item: $infoTarget) { status in
             AppInfoSheet(status: status, manager: manager)
         }

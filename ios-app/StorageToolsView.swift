@@ -15,7 +15,6 @@ struct IPACacheView: View {
     /// the whole cache each time.
     @State private var totalBytes: Int64 = 0
     @State private var pendingDelete: IPACache.Cached?
-    @State private var showSettings = false
 
     var body: some View {
         ScrollView {
@@ -38,8 +37,6 @@ struct IPACacheView: View {
             .pageColumn()
         }
         .background(AppBackground())
-        .toolbar { settingsToolbarItem(isPresented: $showSettings) }
-        .sheet(isPresented: $showSettings) { SettingsView() }
         .onAppear { Task { await load() } }
         .confirmationDialog(L("Delete this copy?"),
                             isPresented: Binding(get: { pendingDelete != nil },
@@ -160,7 +157,6 @@ struct DeviceInfoView: View {
     @EnvironmentObject private var loc: Localizer
     @EnvironmentObject private var engine: Engine
 
-    @State private var showSettings = false
     @State private var detail: Engine.DeviceDetail?
     /// The storage card, measured once when the page appears instead of on every
     /// redraw — the container walk below takes seconds on a full device.
@@ -222,8 +218,6 @@ struct DeviceInfoView: View {
             .pageColumn()
         }
         .background(AppBackground())
-        .toolbar { settingsToolbarItem(isPresented: $showSettings) }
-        .sheet(isPresented: $showSettings) { SettingsView() }
         .onAppear(perform: measureStorage)
     }
 

@@ -935,7 +935,6 @@ struct SideBySideView: View {
     @EnvironmentObject private var accounts: AccountStore
     @ObservedObject var manager: SideBySideManager
 
-    @State private var showSettings = false
     @FocusState private var focus: Field?
 
     private enum Field: Hashable { case address, email, password }
@@ -958,8 +957,6 @@ struct SideBySideView: View {
             .animation(.smooth(duration: 0.4, extraBounce: 0.12), value: manager.finished)
         }
         .background(AppBackground())
-        .toolbar { settingsToolbarItem(isPresented: $showSettings) }
-        .sheet(isPresented: $showSettings) { SettingsView() }
         .scrollDismissesKeyboard(.interactively)
     }
 

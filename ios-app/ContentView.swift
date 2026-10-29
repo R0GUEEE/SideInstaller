@@ -11,7 +11,6 @@ struct ContentView: View {
     /// Watched so the Advanced row summarises what's currently configured.
     @ObservedObject private var appConfig = AppConfigStore.shared
     @Environment(\.openURL) private var openURL
-    @State private var showSettings = false
     @State private var showImporter = false
     /// The App configuration sheet (identity, structure, tweaks).
     @State private var showAppConfig = false
@@ -112,8 +111,6 @@ struct ContentView: View {
                 }
             }
             .background(AppBackground())
-            .toolbar { settingsToolbarItem(isPresented: $showSettings) }
-            .sheet(isPresented: $showSettings) { SettingsView() }
             .sheet(isPresented: $showImporter) {
                 FileImporterRepresentableView(allowedContentTypes: [.ipa]) { urls in
                     guard let url = urls.first else { return }   // empty means cancelled
@@ -1443,20 +1440,6 @@ struct InstallPopup: View {
         if let machine = cert.machineLabel { label += " — \(machine)" }
         if cert.isExpired { label += L(" (expired)") }
         return label
-    }
-}
-
-// MARK: - Toolbar
-
-extension View {
-    /// The gear button that opens Settings, shared by every screen.
-    func settingsToolbarItem(isPresented: Binding<Bool>) -> some ToolbarContent {
-        ToolbarItem(placement: .topBarTrailing) {
-            Button { isPresented.wrappedValue = true } label: {
-                Image(systemName: "gearshape")
-            }
-            .tint(.primary)
-        }
     }
 }
 

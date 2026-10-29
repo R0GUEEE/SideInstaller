@@ -29,7 +29,6 @@ struct TweakManagerView: View {
     @State private var items: [Stored] = []
     @State private var isReading = false
     @State private var pendingStrip: Stored?
-    @State private var showSettings = false
 
     var body: some View {
         ScrollView {
@@ -49,8 +48,6 @@ struct TweakManagerView: View {
             .pageColumn()
         }
         .background(AppBackground())
-        .toolbar { settingsToolbarItem(isPresented: $showSettings) }
-        .sheet(isPresented: $showSettings) { SettingsView() }
         .task { await load() }
         .confirmationDialog(L("Reinstall without these libraries?"),
                             isPresented: Binding(get: { pendingStrip != nil },

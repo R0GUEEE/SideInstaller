@@ -116,7 +116,6 @@ struct MarketplaceView: View {
     @State private var selected: MarketEntry?
     @State private var showAdd = false
     @State private var showManageSources = false
-    @State private var showSettings = false
 
     var body: some View {
         NavigationStack {
@@ -128,7 +127,6 @@ struct MarketplaceView: View {
                 content
             }
             .background(AppBackground())
-            .toolbar { settingsToolbarItem(isPresented: $showSettings) }
             .sheet(item: $selected) { app in
                 NavigationStack {
                     MergerAppView(app: app)
@@ -141,7 +139,6 @@ struct MarketplaceView: View {
             }
             .sheet(isPresented: $showAdd) { AddSourceSheet(store: store) }
             .sheet(isPresented: $showManageSources) { SourceManagerView(store: store) }
-            .sheet(isPresented: $showSettings) { SettingsView() }
             .onAppear {
                 store.load()
                 syncFromStore()

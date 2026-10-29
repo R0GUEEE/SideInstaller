@@ -11,7 +11,6 @@ struct InstallHistoryView: View {
     @EnvironmentObject private var engine: Engine
     @ObservedObject private var history = InstallHistory.shared
 
-    @State private var showSettings = false
     @State private var pendingClear = false
     /// Which entries still have their copy, checked once per appearance instead
     /// of once per row per body — with 200 rows that was 200 file checks a
@@ -60,8 +59,6 @@ struct InstallHistoryView: View {
             .pageColumn()
         }
         .background(AppBackground())
-        .toolbar { settingsToolbarItem(isPresented: $showSettings) }
-        .sheet(isPresented: $showSettings) { SettingsView() }
         .confirmationDialog(L("Clear the install history?"),
                             isPresented: $pendingClear) {
             Button(L("Clear"), role: .destructive) {

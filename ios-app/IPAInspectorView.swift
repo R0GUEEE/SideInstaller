@@ -17,7 +17,6 @@ struct IPAInspectorView: View {
     @State private var isReading = false
     @State private var failure: String?
     @State private var showImporter = false
-    @State private var showSettings = false
 
     var body: some View {
         ScrollView {
@@ -38,8 +37,6 @@ struct IPAInspectorView: View {
             .animation(.smooth(duration: 0.35), value: report?.url)
         }
         .background(AppBackground())
-        .toolbar { settingsToolbarItem(isPresented: $showSettings) }
-        .sheet(isPresented: $showSettings) { SettingsView() }
         .sheet(isPresented: $showImporter) {
             FileImporterRepresentableView(allowedContentTypes: [.ipa]) { urls in
                 guard let url = urls.first else { return }   // empty means cancelled

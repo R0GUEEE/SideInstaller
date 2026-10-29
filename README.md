@@ -130,7 +130,11 @@ encrypted App Store copy is refused instead of using up an App ID.
 
 ## Tools
 
-The **Tools** tab is the menu of everything that isn't an install, grouped and searchable:
+The **Tools** tab is the menu of everything that isn't an install — including **Settings**, which is
+its first card: account, tunnel, renewals, storage, the activity log and the rest, in the sheet it
+always was. There is no gear in the corner of the other screens any more; the menu is the one way in.
+
+Below that, the menu is grouped and searchable:
 
 - **Device** — model, iOS build, UDID and storage; location spoofing.
 - **Signing** — certificates (the row shows when the signing certificate expires, in orange as it

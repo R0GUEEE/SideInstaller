@@ -10,7 +10,7 @@ enum ToolDestination: String, Identifiable, Hashable {
     case certificates, entitlements, pairing, sideBySide
     case history, storedBuilds, injectedLibraries, inspectIPA
     case sources, tweakBrowser
-    case report, about
+    case settings, report, about
 
     var id: String { rawValue }
 
@@ -18,7 +18,7 @@ enum ToolDestination: String, Identifiable, Hashable {
     /// pushing one would nest a second stack inside the first.
     var presentsAsSheet: Bool {
         switch self {
-        case .sources, .report, .about: return true
+        case .sources, .settings, .report, .about: return true
         default:                        return false
         }
     }
@@ -148,7 +148,6 @@ struct ToolsView: View {
     @ObservedObject private var tweakRepos = TweakRepoStore.shared
     @ObservedObject private var history = InstallHistory.shared
 
-    @State private var showSettings = false
     /// The sheet a row opens, when the page it opens owns its own stack.
     @State private var sheet: ToolDestination?
     /// The search field's text; empty shows every section.
@@ -166,7 +165,10 @@ struct ToolsView: View {
             ScrollView {
                 VStack(spacing: 18) {
                     header.cascadeItem(0)
-                    searchField.cascadeItem(1)
+                    if query.isEmpty {
+                        settingsCard.cascadeItem(1)
+                    }
+                    searchField.cascadeItem(2)
 
                     if visibleSections.isEmpty {
                         noMatches.cascadeItem(2)
@@ -184,7 +186,7 @@ struct ToolsView: View {
                                     }
                                 }
                             }
-                            .cascadeItem(min(index + 2, 6))
+                            .cascadeItem(min(index + 3, 7))
                         }
                     }
                 }
@@ -194,8 +196,6 @@ struct ToolsView: View {
             // Still unless the sections don't all fit on the screen.
             .scrollBounceBehavior(.basedOnSize)
             .background(AppBackground())
-            .toolbar { settingsToolbarItem(isPresented: $showSettings) }
-            .sheet(isPresented: $showSettings) { SettingsView() }
             .sheet(item: $sheet) { destination in page(destination) }
             // A link's source arrives here, prefilled and ready to add.
             .sheet(isPresented: Binding(get: { engine.sourceToAdd != nil },
@@ -219,6 +219,21 @@ struct ToolsView: View {
             StatusPill(text: L("%d pages", allEntries.count),
                        systemImage: "square.grid.2x2.fill",
                        color: Theme.accent2)
+        }
+    }
+
+    /// Settings used to be a gear in every screen's top-right corner. It's a page
+    /// of the menu now, first, because it's where the app itself is configured.
+    private var settingsCard: some View {
+        PanelCard {
+            Button { sheet = .settings } label: {
+                ToolRow(entry: ToolEntry(id: "settings",
+                                         title: L("Settings"),
+                                         detail: L("Account, tunnel, renewals, storage and logs"),
+                                         icon: "gearshape.fill",
+                                         destination: .settings))
+            }
+            .buttonStyle(.plain)
         }
     }
 
@@ -461,8 +476,9 @@ struct ToolsView: View {
         case .inspectIPA:       IPAInspectorView()
         case .sources:          SourceManagerView(store: sourceStore)
         case .tweakBrowser:     TweakBrowserView(store: AppConfigStore.shared)
+        case .settings:         SettingsView()
         case .report:           ReportProblemView()
-        case .about:            AboutView()
+        case .about:            AboutView(showsDone: true)
         }
     }
 }
