@@ -1684,3 +1684,31 @@ weakly in their callbacks.
 - **Opened .ipa → Install tab**: `installMenuRevision` already bumps on every import; `RootView` now
   reacts to it by switching tabs, which covers the share-sheet path and the document picker alike.
 
+
+### The tweak browser, and where it stops
+
+- **It's the file picker with an index in front.** Every package ends up in
+  `AppConfigStore.addTweaks` — the same call the Files picker makes — so the parser can't disagree
+  with injection about what a `.deb` contributes. The browser only decides *which* `.deb`, and
+  verifies it arrived as published (SHA-256 from the index, when present).
+- **`Packages` is Debian control, not JSON.** Continuation lines (a leading space or tab) belong to
+  the key above them; a multi-line `Description` is the common case, and a parser that ignores them
+  silently truncates every description and — worse — merges the next stanza's keys. `stanzas(in:)`
+  folds them, and `tools/tweak-repo-check` reads live indexes in CI so that stays true.
+- **One row per identifier.** A repository lists every build it still serves (Havoc: 3,657 stanzas
+  for 531 packages), so the newest version wins, with arm64 preferred when two builds share a
+  version — rootless and rootful both work, since only the `.dylib` is taken.
+- **Filtered at parse time**: a stanza whose `Architecture` isn't `iphoneos-*` is a macOS or Debian
+  build and can't be injected, so it never reaches the list.
+- **The index is cached as published**, in `Application Support/TweakRepos`, and parsed off the main
+  actor when the store loads — a 2.9 MB index is worth not parsing on the first frame. A failed
+  refresh keeps the cache and shows the error on the repository's row, the way a source does in the
+  marketplace.
+- **Plain `Packages` first, `Packages.gz` second.** Most repositories serve both; the compressed one
+  is read through `DebArchive.gunzip`, which is the same inflater `.deb` members use. `.xz`/`.zst`
+  indexes are not read — the plain or gzip variant is missing on very few repositories, and adding an
+  xz decoder to the app for that isn't worth the code.
+- **Known limit**: no dependency resolution. A tweak's `Depends` picks the injector framework
+  (ElleKit / Substrate / libhooker / Substitute) when it names one, and the configuration page says
+  when that framework isn't added; the rest of the dependencies (preference bundles, libraries like
+  AppList) are not installed, because there is no jailbreak for them to be installed into.

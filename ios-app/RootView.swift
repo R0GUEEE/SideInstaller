@@ -565,12 +565,19 @@ struct ToolsView: View {
                     .buttonStyle(.plain)
                     .cascadeItem(rowIndex(6))
                     NavigationLink {
+                        TweakBrowserView(store: AppConfigStore.shared)
+                    } label: {
+                        ToolRow(icon: "syringe", title: L("Tweak browser"))
+                    }
+                    .buttonStyle(.plain)
+                    .cascadeItem(rowIndex(7))
+                    NavigationLink {
                         DeviceInfoView()
                     } label: {
                         ToolRow(icon: "iphone.gen3", title: L("Device"))
                     }
                     .buttonStyle(.plain)
-                    .cascadeItem(rowIndex(7))
+                    .cascadeItem(rowIndex(8))
                 }
                 // No bottom padding: the tab bar's inset already clears the last
                 // row, and the extra 20pt would make a page that fits scroll.
