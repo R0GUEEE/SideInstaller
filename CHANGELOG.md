@@ -5,6 +5,13 @@ All notable changes to SideInstaller are documented here.
 ## Unreleased
 
 ### Changed
+- **Install, My Apps and Tools open with a compact header.** The big hero — an 86-point glyph over
+  a large title with the status pill under it — gave way to a single row: a 34-point glyph beside a
+  `title3` title, the status pill tucked under, about 70 points tall instead of 140. On the three
+  tabs that open with a list, that's a card's worth of content visible without scrolling. Every
+  other page keeps the hero it had.
+
+### Changed
 - **Settings is part of the Tools tab.** The gear in the top-right corner of every screen is gone;
   the page it opened is the first card of **Tools** now, above the search field, and still opens as
   a sheet with the same **Done**. Its sub-pages (Account, Tunnel, Renewals, Storage, Telegram,

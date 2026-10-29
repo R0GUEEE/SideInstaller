@@ -720,21 +720,70 @@ struct BrandHeader<Accessory: View>: View {
     /// A line tucked under the title, close enough to read as one block.
     var subtitle: String? = nil
     var animateIcon: Bool = false
+    /// The tab pages' header: a small glyph beside the title, then the
+    /// accessory, instead of a hero that takes a third of the screen.
+    var compact = false
     @ViewBuilder var accessory: () -> Accessory
 
     @Environment(\.verticalSizeClass) private var verticalSizeClass
 
     /// True in a short window, where the header takes one row.
     private var isRow: Bool { verticalSizeClass == .compact }
-    private var glyphSide: CGFloat { isRow ? 56 : 86 }
+    private var glyphSide: CGFloat { compact ? 34 : (isRow ? 56 : 86) }
     private var alignment: HorizontalAlignment { isRow ? .leading : .center }
 
     var body: some View {
+        if compact {
+            compactBody
+        } else {
+            heroBody
+        }
+    }
+
+    /// One row for the glyph and the title, and the accessory under them. About
+    /// 70 points instead of the hero's 140, which is a card's worth of the page
+    /// back — on the three tabs that open with a list, that's what matters.
+    private var compactBody: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                glyph
+                    .frame(width: 34, height: 34)
+                    .shadow(color: Theme.glow, radius: 8, x: 0, y: 4)
+                VStack(alignment: .leading, spacing: 1) {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(title)
+                            .font(.title3.weight(.bold))
+                        if beta { BetaBadge() }
+                    }
+                    if let subtitle {
+                        Text(subtitle)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 8)
+            }
+            if hasAccessory {
+                accessory()
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, 2)
+    }
+
+    /// True when the page passes something to draw under the title. An
+    /// `EmptyView` still costs the stack its spacing, so it's worth knowing.
+    private var hasAccessory: Bool {
+        Accessory.self != EmptyView.self
+    }
+
+    private var heroBody: some View {
         // One layout that changes shape, so a rotation moves the pieces
         // rather than swapping them out.
         let layout = isRow ? AnyLayout(HStackLayout(spacing: 16))
                            : AnyLayout(VStackLayout(spacing: 14))
-        layout {
+        return layout {
             glyph
                 .frame(width: glyphSide, height: glyphSide)
                 .shadow(color: Theme.glow, radius: isRow ? 14 : 20, x: 0, y: isRow ? 8 : 12)

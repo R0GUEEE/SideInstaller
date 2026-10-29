@@ -1817,3 +1817,15 @@ bounds what it allocates.
 - **Search doesn't hide it.** The Settings card is drawn only while the search field is empty, so a
   search shows results only, but the entry itself is not a section entry and doesn't inflate the
   "N pages" count — it's the app's control, not one of the pages being searched.
+
+### Compact headers for the list tabs
+
+- **`BrandHeader(compact:)`** is one flag on the existing header rather than a second type: the
+  glyph drops from 86 to 34 points, the title from `largeTitle` to `title3`, and the accessory (the
+  status pill) sits under the row instead of under a centred hero. The icon's corner radius and
+  symbol size are derived from `glyphSide`, so they scale with it without a second set of numbers.
+- **Only the three tabs that open with a list use it** — Install, My Apps, Tools. Pushed pages keep
+  the hero: they're read once, not scrolled past.
+- **`hasAccessory`** compares `Accessory.self` with `EmptyView.self` so the stack doesn't reserve
+  spacing for a header that has nothing to show under it. The pill keeps its `.id` and transition,
+  so the cross-fade when the tunnel state changes is unchanged.

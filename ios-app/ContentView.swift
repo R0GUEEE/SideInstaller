@@ -173,7 +173,7 @@ struct ContentView: View {
 
     private var header: some View {
         BrandHeader(icon: "arrow.down.app.fill", image: "AppLogo", title: "SideInstaller",
-                    animateIcon: engine.isRunning) {
+                    animateIcon: engine.isRunning, compact: true) {
             statusPill
                 .transition(.opacity.combined(with: .scale(scale: 0.85, anchor: .top)))
                 .id(statusPillID)

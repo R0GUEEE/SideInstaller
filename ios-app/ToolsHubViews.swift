@@ -215,7 +215,7 @@ struct ToolsView: View {
     // MARK: Header
 
     private var header: some View {
-        BrandHeader(icon: "wrench.and.screwdriver.fill", title: L("Tools")) {
+        BrandHeader(icon: "wrench.and.screwdriver.fill", title: L("Tools"), compact: true) {
             StatusPill(text: L("%d pages", allEntries.count),
                        systemImage: "square.grid.2x2.fill",
                        color: Theme.accent2)
