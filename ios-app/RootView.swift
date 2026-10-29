@@ -7,7 +7,8 @@ import SwiftUI
 struct RootView: View {
     /// The tabs and their backdrop level. The selection is tracked so a tab
     /// switch can animate `Backdrop` to the new level.
-    private enum Page: Hashable {
+    /// The four tabs. Internal, not private: `AppRouter` asks for one by name.
+    enum Page: Hashable {
         case install, marketplace, apps, tools
 
         var wash: Backdrop.Level {
@@ -115,6 +116,12 @@ struct RootView: View {
         }
         // A certificate a link brought is checked and imported by the same
         // manager as the Certificates page.
+        // A Shortcuts action or a notification can ask for a tab.
+        .onChange(of: AppRouter.shared.requestedPage) { _, request in
+            guard let request else { return }
+            page = request
+            AppRouter.shared.requestedPage = nil
+        }
         // An .ipa opened from another app (share sheet, "Open with") imports,
         // and the Install tab is where it's ready to install.
         .onChange(of: engine.installMenuRevision) { _, _ in
@@ -572,12 +579,26 @@ struct ToolsView: View {
                     .buttonStyle(.plain)
                     .cascadeItem(rowIndex(7))
                     NavigationLink {
+                        TweakManagerView()
+                    } label: {
+                        ToolRow(icon: "puzzlepiece.extension", title: L("Injected libraries"))
+                    }
+                    .buttonStyle(.plain)
+                    .cascadeItem(rowIndex(8))
+                    NavigationLink {
+                        InstallHistoryView()
+                    } label: {
+                        ToolRow(icon: "clock.arrow.circlepath", title: L("Install history"))
+                    }
+                    .buttonStyle(.plain)
+                    .cascadeItem(rowIndex(9))
+                    NavigationLink {
                         DeviceInfoView()
                     } label: {
                         ToolRow(icon: "iphone.gen3", title: L("Device"))
                     }
                     .buttonStyle(.plain)
-                    .cascadeItem(rowIndex(8))
+                    .cascadeItem(rowIndex(10))
                 }
                 // No bottom padding: the tab bar's inset already clears the last
                 // row, and the extra 20pt would make a page that fits scroll.

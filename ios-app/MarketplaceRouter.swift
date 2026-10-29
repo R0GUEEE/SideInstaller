@@ -22,3 +22,20 @@ final class MarketplaceRouter: ObservableObject {
         showAllSources = true
     }
 }
+
+/// Which tab the app is showing, for anything outside the view tree that needs to
+/// bring one up — a Shortcuts action, a notification, a deep link.
+@MainActor
+final class AppRouter: ObservableObject {
+
+    static let shared = AppRouter()
+
+    /// The tab to show. `RootView` observes it and clears it once applied.
+    @Published var requestedPage: RootView.Page?
+
+    private init() {}
+
+    func go(_ page: RootView.Page) {
+        requestedPage = page
+    }
+}
