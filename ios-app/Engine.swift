@@ -2088,9 +2088,16 @@ final class Engine: ObservableObject {
         guard let ipa = downloadedIPAPath else { return }
         let url = URL(fileURLWithPath: ipa)
         guard let info = IPALibrary.appInfo(at: url) else { return }
-        IPACache.store(url, bundleID: info.bundleID,
-                       displayName: signedDisplayName ?? info.name)
+        let cached = IPACache.store(url, bundleID: info.bundleID,
+                                    displayName: signedDisplayName ?? info.name)
         IPACache.prune()
+        // The history is what makes "roll back to the last build" possible, and
+        // it's written from the same facts the cache just used.
+        InstallHistory.shared.record(bundleID: info.bundleID,
+                                     name: signedDisplayName ?? info.name,
+                                     version: info.version,
+                                     cached: cached?.url,
+                                     origin: installSource.displayName)
     }
 
     /// Model, iOS build and UDID as lockdown reports them, for the Device page.

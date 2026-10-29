@@ -408,6 +408,15 @@ struct MarketplaceView: View {
                                 } label: {
                                     Label(L("Install newest"), systemImage: "square.and.arrow.down")
                                 }
+                                Button {
+                                    if let url = app.latest?.link {
+                                        InstallQueue.shared.add(name: app.name, url: url,
+                                                                bundleID: app.id)
+                                        Haptics.tap()
+                                    }
+                                } label: {
+                                    Label(L("Add to install queue"), systemImage: "text.badge.plus")
+                                }
                                 ForEach(app.versions) { version in
                                     let title: String = L("Install %@", versionLabel(version))
                                     Button {

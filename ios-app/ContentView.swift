@@ -29,6 +29,10 @@ struct ContentView: View {
     @State private var confirmingCancel = false
     /// Text in the IPA download-link field.
     @State private var ipaLink = ""
+    /// The line of installs, and what the clipboard last offered.
+    @ObservedObject private var queue = InstallQueue.shared
+    @State private var clipboardURL: URL?
+    @State private var didCheckClipboard = false
     @FocusState private var linkFieldFocused: Bool
 
     var body: some View {
@@ -40,6 +44,8 @@ struct ContentView: View {
                         updateBanner.transition(.cardAppear)
                     }
                     appCard.cascadeItem(1)
+                    queueCard.cascadeItem(2)
+                    clipboardCard.cascadeItem(3)
                     // Below iOS 27 a pairing file must be imported, so show the
                     // import card.
                     if showsPairingCard {
@@ -101,7 +107,13 @@ struct ContentView: View {
                 .animation(.smooth(duration: 0.35), value: showsAdvanced)
                 // A new import starts the page over: no stale link in the
                 // field, no Advanced left open from the last app.
-                .onChange(of: engine.installMenuRevision) { _, _ in
+                .onAppear {
+            if !didCheckClipboard {
+                didCheckClipboard = true
+                checkClipboard()
+            }
+        }
+        .onChange(of: engine.installMenuRevision) { _, _ in
                     ipaLink = ""
                     advancedExpanded = false
                     stepsExpanded = false
@@ -283,6 +295,144 @@ struct ContentView: View {
     }
 
     // MARK: App picker
+
+    /// The install line: what's queued, what's running, what's done.
+    @ViewBuilder
+    private var queueCard: some View {
+        if !queue.items.isEmpty {
+            PanelCard {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Label(L("Install queue"), systemImage: "list.bullet.rectangle")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Text(L("%ld waiting", queue.pending.count))
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                    ForEach(queue.items) { item in
+                        HStack(spacing: 8) {
+                            queueGlyph(item)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(item.name)
+                                    .font(.subheadline)
+                                    .lineLimit(1)
+                                if case .failed(let why) = item.state {
+                                    Text(why)
+                                        .font(.caption2)
+                                        .foregroundStyle(.orange)
+                                        .lineLimit(1)
+                                }
+                            }
+                            Spacer(minLength: 4)
+                            if !queue.isRunning, !item.isFinished {
+                                Button {
+                                    queue.remove(item.id)
+                                } label: {
+                                    Image(systemName: "minus.circle").font(.footnote)
+                                }
+                                .buttonStyle(.borderless)
+                            }
+                        }
+                    }
+                    HStack(spacing: 8) {
+                        Button {
+                            queue.start()
+                        } label: {
+                            Label(L("Install %ld", queue.pending.count), systemImage: "play.fill")
+                                .font(.footnote.weight(.semibold))
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(queue.isRunning || queue.pending.isEmpty || engine.isRunning)
+
+                        if queue.isRunning {
+                            Button {
+                                queue.cancel()
+                            } label: {
+                                Text(L("Stop")).frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                        } else {
+                            Button {
+                                queue.clearFinished()
+                            } label: {
+                                Text(L("Clear done")).frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(queue.items.allSatisfy { !$0.isFinished })
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func queueGlyph(_ item: InstallQueue.Item) -> some View {
+        Group {
+            switch item.state {
+            case .waiting:     Image(systemName: "clock").foregroundStyle(.tertiary)
+            case .installing:  ProgressView().controlSize(.small)
+            case .done:        Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+            case .failed:      Image(systemName: "xmark.circle.fill").foregroundStyle(.red)
+            }
+        }
+        .font(.footnote)
+        .frame(width: 16)
+    }
+
+    /// A link on the clipboard is offered, not taken: reading the pasteboard
+    /// prompts iOS, so the read happens when this is tapped.
+    @ViewBuilder
+    private var clipboardCard: some View {
+        if let url = clipboardURL {
+            PanelCard {
+                HStack(spacing: 10) {
+                    Image(systemName: "doc.on.clipboard")
+                        .foregroundStyle(Theme.accent2)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(L("An .ipa link is on the clipboard"))
+                            .font(.subheadline.weight(.semibold))
+                        Text(url.lastPathComponent.isEmpty ? url.absoluteString : url.lastPathComponent)
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    Spacer(minLength: 4)
+                    Button(L("Install")) {
+                        engine.installLinkedIPA(url)
+                        clipboardURL = nil
+                    }
+                    .font(.footnote.weight(.semibold))
+                    .buttonStyle(.borderedProminent)
+                    Button {
+                        clipboardURL = nil
+                    } label: {
+                        Image(systemName: "xmark").font(.footnote)
+                    }
+                    .buttonStyle(.borderless)
+                }
+            }
+        }
+    }
+
+    /// Checks whether the clipboard holds something that looks like an .ipa link.
+    /// `hasStrings` doesn't prompt; the value is only read once it's confirmed.
+    private func checkClipboard() {
+        let pasteboard = UIPasteboard.general
+        guard pasteboard.hasStrings || pasteboard.hasURLs else {
+            clipboardURL = nil
+            return
+        }
+        let text = pasteboard.string ?? pasteboard.url?.absoluteString ?? ""
+        guard let link = Engine.downloadLink(text), link.pathExtension.lowercased() == "ipa" else {
+            clipboardURL = nil
+            return
+        }
+        clipboardURL = link
+    }
 
     private var appCard: some View {
         PanelCard {

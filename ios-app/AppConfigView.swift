@@ -36,6 +36,10 @@ struct AppConfigView: View {
     /// True while the build's own values are being written into the fields, so
     /// that isn't mistaken for the user typing.
     @State private var applyingSnapshot = false
+    /// Presets: the whole configuration under a name.
+    @ObservedObject private var presets = InstallPresets.shared
+    @State private var showSavePreset = false
+    @State private var presetName = ""
     /// The last comparison with the build.
     @State private var check: Check?
 
@@ -59,7 +63,8 @@ struct AppConfigView: View {
             ScrollView {
                 LazyVStack(spacing: 18) {
                     introCard
-                    identityCard
+                    presetsCard
+                identityCard
                     plistCard
                     entitlementsCard
                     checkCard
@@ -223,6 +228,73 @@ struct AppConfigView: View {
     }
 
     // MARK: Identity
+
+    /// Saved configurations: apply one, or save the current one under a name.
+    private var presetsCard: some View {
+        PanelCard {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    header(L("Presets"), systemImage: "square.stack.3d.up")
+                    Spacer()
+                    Button {
+                        presetName = ""
+                        showSavePreset = true
+                    } label: {
+                        Image(systemName: "plus.circle")
+                            .font(.footnote.weight(.semibold))
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel(L("Save this configuration as a preset"))
+                }
+                Text(L("A preset is everything on this page except the app's identity: stripped extensions, tweaks, plist edits and entitlements."))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if presets.presets.isEmpty {
+                    Text(L("None saved yet."))
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+                ForEach(presets.presets) { preset in
+                    HStack(spacing: 8) {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(preset.name).font(.subheadline)
+                            Text(preset.summary)
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                                .lineLimit(2)
+                        }
+                        Spacer(minLength: 4)
+                        Button(L("Apply")) {
+                            presets.apply(preset)
+                            Haptics.tap()
+                            note = L("Applied \"%@\".", preset.name)
+                        }
+                        .font(.caption.weight(.semibold))
+                        .buttonStyle(.borderless)
+                        Button(role: .destructive) {
+                            presets.remove(preset.id)
+                        } label: {
+                            Image(systemName: "trash").font(.footnote)
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+        }
+        .alert(L("Save a preset"), isPresented: $showSavePreset) {
+            TextField(L("Name"), text: $presetName)
+            Button(L("Save")) {
+                if presets.save(presetName, config: store.config) != nil {
+                    note = L("Saved \"%@\".", presetName)
+                }
+            }
+            Button(L("Cancel"), role: .cancel) {}
+        } message: {
+            Text(L("The configuration as it is now, without the app's identity."))
+        }
+    }
 
     private var identityCard: some View {
         PanelCard {
