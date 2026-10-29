@@ -5,6 +5,12 @@ All notable changes to SideInstaller are documented here.
 ## Unreleased
 
 ### Added
+- **Background keep-alive, with a page of its own under Tools.** Tools › **Background** turns on
+  either of the background modes this app declares: **silent audio** (a playback session looping
+  silence — the reliable one) or **location updates** (a low-accuracy session). It's remembered
+  across launches; audio resumes on its own, location only when it's already been allowed, so nobody
+  gets a permission prompt on opening the app. The page says what each costs and what iOS still
+  won't guarantee.
 - **Scan my whole Telegram.** The Telegram studio takes a full Telegram Desktop export (`result.json`
   from Settings › Advanced › Export Telegram data, “include everything”) and lists every channel the
   account is in, with how many `.ipa` files each carries; the ones with a public handle are ticked

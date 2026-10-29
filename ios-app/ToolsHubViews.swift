@@ -6,7 +6,7 @@ import SwiftUI
 /// the destination, so a row's title, its status line and where it goes all
 /// live in one place.
 enum ToolDestination: String, Identifiable, Hashable {
-    case device, location
+    case device, location, keepAlive
     case certificates, entitlements, pairing, sideBySide
     case history, storedBuilds, injectedLibraries, inspectIPA
     case sources, tweakBrowser, tweakLibrary
@@ -146,6 +146,8 @@ struct ToolsView: View {
 
     /// The two stores whose contents are a row's status line.
     @ObservedObject private var tweakRepos = TweakRepoStore.shared
+    /// The keep-alive's state, for its row's status line.
+    @ObservedObject private var keeper = BackgroundKeeper.shared
     /// The local tweak library, for the storage row's count.
     @ObservedObject private var tweakLibrary = TweakLibrary.shared
     @ObservedObject private var history = InstallHistory.shared
@@ -306,6 +308,14 @@ struct ToolsView: View {
                       detail: L("Set where this iPhone says it is"),
                       icon: "location.fill",
                       destination: .location),
+            ToolEntry(id: "background",
+                      title: L("Background"),
+                      detail: keeper.isRunning
+                            ? L("Running · %@", keeper.mode.title)
+                            : L("Keep the app alive with audio or location"),
+                      detailTint: keeper.isRunning ? .green : nil,
+                      icon: "clock.badge.checkmark",
+                      destination: .keepAlive),
         ]
         var signing: [ToolEntry] = [
             ToolEntry(id: "certificates",
@@ -476,6 +486,7 @@ struct ToolsView: View {
         switch destination {
         case .device:           DeviceInfoView()
         case .location:         LocationView(manager: locationManager)
+        case .keepAlive:        BackgroundKeeperView()
         case .certificates:     CertsView(manager: certManager)
         case .entitlements:     EntitlementsView(manager: entitlementsManager)
         case .pairing:          PairingView(manager: pairingManager)

@@ -27,6 +27,9 @@ struct SideInstallerApp: App {
         // launching, so it's first.
         BackgroundKeepAlive.shared.register()
         BackgroundKeepAlive.shared.scheduleRefresh()
+        // Whatever keep-alive was on when the app was last used, back on: a run
+        // in progress shouldn't depend on the user remembering to flip it.
+        BackgroundKeeper.shared.restore()
         // Renewing apps before their profile lapses.
         AutoResign.shared.register()
         AutoResign.shared.schedule()

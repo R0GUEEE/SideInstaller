@@ -1907,3 +1907,20 @@ bounds what it allocates.
 - **Only public handles are addable**: without one there's no `t.me/s/` preview to read, and no
   account to read it with. Those channels stay in the list, marked, rather than being hidden — a
   list that silently drops half the account is worse than one that explains itself.
+
+### Background keep-alive
+
+- **Two modes, both declared in the plist already** (`audio`, `location`): silent audio through
+  `AVAudioEngine` with a looped empty buffer, or `CLLocationManager` at three-kilometre accuracy with
+  `allowsBackgroundLocationUpdates`. The audio session is the dependable one; location costs less
+  battery but dies without permission and puts an arrow in the status bar.
+- **`pendingLocationStart`** exists because `requestAlwaysAuthorization` returns immediately: without
+  it, `start(.location)` would mark the keep-alive running before anything was, and the delegate's
+  guard (`mode == .off`) would then refuse to start it. The delegate is where a granted prompt
+  finishes the job.
+- **Restore is asymmetric on purpose**: audio comes back at launch (it's silent and expected), but
+  location only does when permission is already there — a prompt on launch would be the app asking
+  for something the user didn't just request.
+- **`BackgroundKeepAlive` (BGTask, for the Telegram source) is untouched**: that's the periodic
+  refresh path, a different mechanism with a different ceiling. This one is the deliberate
+  user-facing switch.
