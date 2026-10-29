@@ -5,6 +5,11 @@ All notable changes to SideInstaller are documented here.
 ## Unreleased
 
 ### Added
+- **Scan my whole Telegram.** The Telegram studio takes a full Telegram Desktop export (`result.json`
+  from Settings › Advanced › Export Telegram data, “include everything”) and lists every channel the
+  account is in, with how many `.ipa` files each carries; the ones with a public handle are ticked
+  already, and one button adds them all. Channels without a public handle are listed too, marked as
+  unreadable from here — that's the limit of reading without an account.
 - **A refresh button on the Install tab clears everything it was given.** Top right: it drops the
   imported `.ipa` (and deletes its copy), any release picked, the build and channel back to
   SideStore/stable, the signing configuration, the pasted link and the last run's state. Nothing a
