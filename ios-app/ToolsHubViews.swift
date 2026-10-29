@@ -309,8 +309,8 @@ struct ToolsView: View {
         signing.append(ToolEntry(id: "sideBySide",
                                  title: L("Side by Side"),
                                  detail: L("Install to a second iPhone"),
-                                 beta: true,
                                  image: "SideBySideLogo",
+                                 beta: true,
                                  destination: .sideBySide))
 
         let builds: [ToolEntry] = [
