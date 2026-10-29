@@ -1781,3 +1781,24 @@ weakly in their callbacks.
 - **Why About/Report moved here**: both already existed as sheets opened from Settings or from
   another page's toolbar. A menu of pages is the honest place for them, and duplicating the entry
   costs nothing — they're the same views.
+
+### Tools performance: what was actually slow
+
+Every one of these was work in a `body` or a synchronous file call on the main actor, which is why
+the pages felt like they hung rather than merely loading:
+
+| Where | What it did | Now |
+|---|---|---|
+| Device info | `StorageReport.size(of: NSHomeDirectory())` — a recursive walk of every file in the app container — plus `IPACache.totalBytes()`, in a computed property used by `body` | measured once in `onAppear`, in `Task.detached`, into `@State`, with a "Measuring…" row |
+| Stored builds | `IPACache.totalBytes()` in the header's `StatusPill`, i.e. a folder listing on every redraw; `IPACache.all()` on the main actor | `IPACache.load()` (async), and the total summed from the entries already read |
+| Install history | `entry.cachedURL` per row per body — a `fileExists` per row, 200 of them at the limit | one detached pass per appearance building a `Set<UUID>`; the URL is resolved when the button is tapped |
+| Injected libraries | `IPALibrary.contents` inflated each build's whole executable (no cap after the `max:` removal) | `IPALibrary.prefix(of:in:limit:)` inflates the first 8 MB into a small buffer; `compression_decode_buffer` stops when the destination fills, which is exactly the prefix a Mach-O header needs |
+| Report a problem | `ProblemReport.current(engine)` in `body`, which maps and redacts the entire activity log | built once, kept in `@State` |
+| Tools hub | certificate expiry parsed and formatted per redraw | formatted on `onAppear` and when the certificate list changes; `DevCert` shares its `ISO8601DateFormatter`s |
+| Settings › Storage | four directory walks in `onAppear` on the main actor | `Task.detached` |
+| About | QR code drawn by Core Image in `body` | drawn once per address, off-main |
+
+Two rules came out of this and are worth keeping: **no file-system call in a `body`** (a `body` can
+run tens of times a second while a text field has focus), and **no unbounded inflate of a member**
+— a zip entry's `uncompressedSize` is attacker-controlled in a downloaded `.ipa`, so the reader
+bounds what it allocates.

@@ -4,6 +4,26 @@ All notable changes to SideInstaller are documented here.
 
 ## Unreleased
 
+### Fixed
+- **The Tools pages no longer do their heavy work while drawing.** Device info measured the app
+  container — a walk of every file in it, documents and caches included — inside a `body`, so the
+  page stalled for as long as the walk took and re-ran it on every redraw; Stored builds re-scanned
+  its folder for the header on each redraw; Install history checked for a file once per row per
+  redraw (two hundred file tests on a full list); Report a problem rebuilt the whole redacted log on
+  every keystroke in its description field. All of that is measured once — off the main actor, with
+  a visible "Measuring…" while it runs — and the Reports page's report is built once.
+- **Injected libraries reads an executable's head instead of the whole binary.** The page inflated
+  each stored build's executable in full (tens of megabytes apiece, up to a gigabyte for a big app)
+  to read load commands that live in the first few kilobytes. It now reads an 8 MB prefix, refuses
+  members over 64 MB compressed, and says "the executable couldn't be read" rather than claiming
+  the build links nothing.
+- **Long lists build lazily.** Entitlements (hundreds of App IDs on a paid team) and the tweak
+  browser's results are `LazyVStack`s now.
+- **Smaller ones:** the certificate expiry is parsed with shared ISO-8601 formatters instead of a
+  new one per call, the Tools hub formats that expiry once per change instead of once per redraw,
+  Settings › Storage measures its four folders off the main actor, and the About page's QR code is
+  rendered once, off the main actor.
+
 ### Changed
 - **The Tools tab is grouped, searchable, and says what's in each page.** Thirteen pages now sit in
   five sections — Device, Signing, Apps & builds, Sources & tweaks, Help — with a search field over
