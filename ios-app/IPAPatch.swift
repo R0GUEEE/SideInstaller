@@ -695,21 +695,23 @@ enum IPAPatch {
         [UInt8(value & 0xFF), UInt8((value >> 8) & 0xFF),
          UInt8((value >> 16) & 0xFF), UInt8((value >> 24) & 0xFF)]
     }
-    /// Copies `build`'s archive with the main binary's links to `libraries`
+
+    /// Copies an archive with the main binary's links to `libraries`
     /// removed, writing the result to `destination`.
     ///
     /// Everything else is copied as its original compressed bytes, so one edit
-    /// costs one re-encode — and the copy is a normal `.ipa` the installer can
-    /// take straight in.
-    static func strip(_ build: IPACache.Cached, libraries: Set<String>,
+    /// costs one re-encode — and the copy is a normal `.ipa` that the installer
+    /// can take straight in.
+    static func strip(_ url: URL, libraries: Set<String>,
                       writing destination: URL) throws {
-        let source = try FileHandle(forReadingFrom: build.url)
+        let source = try FileHandle(forReadingFrom: url)
         defer { try? source.close() }
-        guard let size = (try? FileManager.default.attributesOfItem(atPath: build.url.path)[.size]) as? Int,
+        guard let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size]) as? Int,
               size > 22 else { throw PatchError.notAnIPA }
         let entries = try directory(source, fileSize: size)
         guard let app = mainApp(in: entries) else { throw PatchError.notAnIPA }
 
+        // The executable's name comes from the app's own Info.plist.
         guard let plistEntry = entries.first(where: { $0.name == app.prefix + "Info.plist" }),
               let raw = try contents(of: plistEntry, in: source),
               let plist = try? PropertyListSerialization.propertyList(from: raw, format: nil)
@@ -724,7 +726,8 @@ enum IPAPatch {
         else { throw PatchError.write("none of those libraries are linked by \(executable)") }
 
         let output = try Writer(source: source)
-        // A directory entry carries no data; the writer records files.
+        // Directories have no data; the writer only records files, and the
+        // reader copes with a directory-less archive.
         for entry in entries where entry.uncompressedSize > 0 {
             if entry.name == binaryName {
                 try output.add(name: entry.name, data: stripped,
@@ -937,15 +940,6 @@ enum MachOInject {
         return out
     }
 
-    private static func align(_ value: Int, to boundary: Int) -> Int {
-        (value + boundary - 1) / boundary * boundary
-    }
-
-    private static func be32(_ bytes: [UInt8], _ at: Int) -> UInt32 {
-        guard at >= 0, at + 4 <= bytes.count else { return 0 }
-        return UInt32(bytes[at]) << 24 | UInt32(bytes[at + 1]) << 16
-            | UInt32(bytes[at + 2]) << 8 | UInt32(bytes[at + 3])
-    }
     /// Removes the load commands for named libraries, for taking a tweak back
     /// out of a build.
     ///

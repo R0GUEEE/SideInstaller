@@ -7,6 +7,13 @@ import Foundation
 /// scan the sources, re-sign everything, queue a link, or open the marketplace.
 /// The intents run in the app's process, which is why they can call the same
 /// main-actor objects the screens use.
+/// What an intent throws when the value it was handed isn't one it can use.
+/// App Intents shows a `LocalizedError`'s description to the user.
+struct IntentInputError: LocalizedError {
+    var errorDescription: String?
+    init(_ message: String) { errorDescription = message }
+}
+
 @available(iOS 16.0, *)
 struct ScanSourcesIntent: AppIntent {
     static var title: LocalizedStringResource = "Scan sources"
@@ -52,7 +59,7 @@ struct QueueInstallIntent: AppIntent {
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
         guard let target = Engine.downloadLink(link.absoluteString) else {
-            return .result(dialog: IntentDialog("That isn't a link to an .ipa file."))
+            throw IntentInputError("That isn't a link to an .ipa file.")
         }
         let added = await InstallQueue.shared.add(name: target.lastPathComponent,
                                                   url: target)
