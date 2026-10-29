@@ -6,9 +6,9 @@ import Foundation
 ///
 /// An index is kept on disk after it's read, so the browser opens with content
 /// — and says when a refresh fails — the way the marketplace does with its
-/// sources. Everything here is main-actor bound: the pages read it in a body,
-/// and `TweakRepository` is part of their state.
-@MainActor
+/// sources. The class stays non-isolated so `shared` can be read from a
+/// property initializer; everything that touches published state is main-actor
+/// bound, the way `SourceStore` is.
 final class TweakRepoStore: ObservableObject {
 
     static let shared = TweakRepoStore()
@@ -44,6 +44,7 @@ final class TweakRepoStore: ObservableObject {
 
     // MARK: - Adding and removing
 
+    @MainActor
     @discardableResult
     func addRepo(_ raw: String) async throws -> TweakRepository {
         guard let normalized = Self.normalize(raw) else { throw RepoError.badURL(raw) }
@@ -58,6 +59,7 @@ final class TweakRepoStore: ObservableObject {
         return self.repo(repo.id) ?? repo
     }
 
+    @MainActor
     func remove(_ id: UUID) {
         repos.removeAll { $0.id == id }
         packages[id] = nil
@@ -67,6 +69,7 @@ final class TweakRepoStore: ObservableObject {
         save()
     }
 
+    @MainActor
     func repo(_ id: UUID) -> TweakRepository? {
         repos.first { $0.id == id }
     }
@@ -75,6 +78,7 @@ final class TweakRepoStore: ObservableObject {
 
     /// Reads one repository's index, replacing what its row shows. A failure
     /// keeps the packages already cached and records why.
+    @MainActor
     func refresh(_ repo: TweakRepository) async {
         guard !busy.contains(repo.id) else { return }
         busy.insert(repo.id)
@@ -100,7 +104,10 @@ final class TweakRepoStore: ObservableObject {
                     repos[index].name = label
                 }
             }
-            try? raw.write(to: Self.cacheFile(id), atomically: true, encoding: .utf8)
+            let cache = Self.cacheFile(id)
+            Task.detached(priority: .utility) {
+                try? raw.write(to: cache, atomically: true, encoding: .utf8)
+            }
             save()
         } catch {
             errors[repo.id] = error.localizedDescription
@@ -109,12 +116,14 @@ final class TweakRepoStore: ObservableObject {
 
     /// Reads every repository, one at a time: a refresh is background work and
     /// has no reason to open several connections at once.
+    @MainActor
     func refreshAll() async {
         for repo in repos { await refresh(repo) }
     }
 
     /// Reads the repositories that have never been read, which is what the
     /// first visit to the page needs. Later visits use the cached index.
+    @MainActor
     func refreshIfStale() async {
         for repo in repos where repo.updated == nil {
             await refresh(repo)
@@ -125,6 +134,7 @@ final class TweakRepoStore: ObservableObject {
 
     /// Downloads a package's `.deb` to a temporary file and checks it against
     /// the index's SHA-256 when one is given.
+    @MainActor
     func file(for package: RepoPackage) async throws -> URL {
         let base = repo(package.repoID)?.url ?? ""
         guard let url = Self.packageURL(filename: package.filename, base: base) else {

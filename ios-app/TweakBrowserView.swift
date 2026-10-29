@@ -440,6 +440,7 @@ struct TweakBrowserView: View {
         }
     }
 
+    @MainActor
     private func add(_ package: RepoPackage) {
         guard adding == nil else { return }
         adding = package.id
@@ -461,6 +462,7 @@ struct TweakBrowserView: View {
         }
     }
 
+    @MainActor
     private func addRepository() {
         let text = newRepo
         guard !addingRepo, !text.trimmingCharacters(in: .whitespaces).isEmpty else { return }
@@ -485,6 +487,7 @@ struct TweakBrowserView: View {
         }
     }
 
+    @MainActor
     private func show(_ text: String) {
         note = text
         Task {
@@ -661,6 +664,7 @@ private struct TweakPackageDetail: View {
         .disabled(adding || isInConfig)
     }
 
+    @MainActor
     private func add() {
         guard !adding else { return }
         adding = true
