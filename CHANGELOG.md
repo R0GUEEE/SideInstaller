@@ -5,6 +5,17 @@ All notable changes to SideInstaller are documented here.
 ## Unreleased
 
 ### Added
+- **Free in-app purchases, as one switch in the tweak section.** Signing configuration › Tweaks now
+  carries a **Free in-app purchases** toggle that adds the three bundled patches together:
+  **SatellaJailed** (hooks StoreKit's receipt and transaction checks with its own runtime),
+  **iOSGods iAPCracker** (drives `SKPaymentTransaction.transactionState` to purchased through
+  `MSHookMessageEx`) and **autoRevenuecat** (answers RevenueCat as if every entitlement is active).
+  The Logos tweak is marked as needing an injection framework — ElleKit/Substitute/Substrate/
+  libhooker, whichever is already here — and the panel offers to download ElleKit when none is.
+  Turning the switch off removes all three. The libraries are bundled in the app
+  (`IAPTweaks/`), so nothing has to be fetched.
+
+### Added
 - **Bulk install.** Under the custom `.ipa` button, **Bulk install** takes several files at once and
   puts them in the install queue, one after another — the queue card on the Install tab shows each
   one's state. A picker's file stops being readable when the picker closes, so each is copied into

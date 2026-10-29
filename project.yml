@@ -30,6 +30,12 @@ targets:
     platform: iOS
     sources:
       - path: ios-app
+      # In-app-purchase tweaks, copied into the app so the install menu can add
+      # them without a download. A folder reference, so the .dylibs keep their
+      # names and land as Resources/IAPTweaks in the bundle.
+      - path: IAPTweaks
+        type: folder
+        buildPhase: resources
     dependencies:
       - framework: SideInstallerFFI.xcframework
         embed: false

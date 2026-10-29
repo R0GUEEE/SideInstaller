@@ -546,6 +546,16 @@ final class AppConfigStore: ObservableObject {
         config.tweaks[index].loadPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// Records the injector a package expects, for libraries whose dependency
+    /// can't be read from the file: an undefined `MSHookMessageEx` names no
+    /// package, so the caller knows and the link list doesn't.
+    func setRequiresInjector(_ kind: TweakInjectorKind?, forFileName fileName: String) {
+        guard let index = config.tweaks.firstIndex(where: {
+            ($0.path as NSString).lastPathComponent.caseInsensitiveCompare(fileName) == .orderedSame
+        }) else { return }
+        config.tweaks[index].requiresInjector = kind
+    }
+
     func setWeak(_ weak: Bool, for id: UUID) {
         guard let index = config.tweaks.firstIndex(where: { $0.id == id }) else { return }
         config.tweaks[index].weak = weak

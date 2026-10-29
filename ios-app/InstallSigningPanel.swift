@@ -13,6 +13,8 @@ struct InstallSigningPanel: View {
     @State private var showBrowser = false
     @State private var showLibrary = false
     @State private var pendingInjectorKind: TweakInjectorKind?
+    /// What the in-app-purchase switch last did.
+    @State private var iapNote: String?
     @State private var showInjectorImporter = false
 
     var body: some View {
@@ -166,6 +168,7 @@ struct InstallSigningPanel: View {
     private var tweaks: some View {
         VStack(alignment: .leading, spacing: 8) {
             group(L("Tweaks"), systemImage: "syringe")
+            purchaseSwitch
             if config.config.tweaks.isEmpty {
                 Text(L("A .dylib or .deb added here is unpacked into the app's Frameworks folder and loaded by its main executable."))
                     .font(.caption)
@@ -212,6 +215,63 @@ struct InstallSigningPanel: View {
                 .padding(.vertical, 2)
             }
         }
+    }
+
+    /// The one switch for the three bundled in-app-purchase patches. It adds
+    /// all of them because they cover different apps; leaving one out is what
+    /// makes a purchase work on one app and fail on the next.
+    private var purchaseSwitch: some View {
+        let enabled = IAPTweaks.isEnabled(in: config)
+        let injector = IAPTweaks.requiredInjector(in: config)
+        return VStack(alignment: .leading, spacing: 6) {
+            Toggle(isOn: Binding(get: { enabled }, set: { on in
+                iapNote = IAPTweaks.setEnabled(on, in: config)
+                if on { Haptics.success() } else { Haptics.tap() }
+            })) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(L("Free in-app purchases"))
+                        .font(.caption.weight(.semibold))
+                    Text(L("Satella + iAPCracker + autoRevenuecat, injected together"))
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .toggleStyle(.switch)
+            .controlSize(.mini)
+
+            if enabled {
+                ForEach(IAPTweaks.entries, id: \.fileName) { entry in
+                    Text("· " + entry.method)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if let injector, config.injector(for: injector) == nil {
+                    HStack(spacing: 6) {
+                        Text(L("%@ is needed for one of these.", injector.title))
+                            .font(.caption2)
+                            .foregroundStyle(.orange)
+                        Button(L("Get %@", injector.title)) {
+                            Task { await config.downloadInjector(injector) }
+                        }
+                        .font(.caption2.weight(.semibold))
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(Theme.accent2)
+                    }
+                }
+            }
+            if let iapNote {
+                Text(iapNote)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Text(L("A local receipt check is what these answer. An app that validates on its own server, or uses StoreKit 2's signed transactions, may still refuse."))
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.vertical, 4)
     }
 
     // MARK: Injectors
