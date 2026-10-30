@@ -799,9 +799,11 @@ final class SideBySideManager: ObservableObject {
             engine.log("Signed bundle at \(path)")
             return path
         } else {
-            let message = error.map { String(cString: $0) } ?? "rc=\(rc)"
+            let raw = error.map { String(cString: $0) } ?? ""
             error.map { si_string_free($0) }
-            engine.log("Sign FAILED: \(message)")
+            let message = raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? "No diagnostic returned by the signer (rc=\(rc))." : raw
+            engine.log("Sign FAILED (rc=\(rc)): \(message)")
             // Same errors as the Install tab, worded for another person's
             // account and iPhone.
             if Engine.isCertExistsError(message) {

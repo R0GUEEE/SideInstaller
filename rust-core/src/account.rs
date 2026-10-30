@@ -395,10 +395,15 @@ pub unsafe fn sign_ipa(
             0
         }
         Ok(Err(e)) => {
+            // Log only diagnostic metadata here; the actual message follows the
+            // normal FFI path and Swift's log redaction, never keys or profiles.
+            tracing::error!(code = 1, bytes = e.len(), contains_nul = e.as_bytes().contains(&0),
+                            "Signing returned an error");
             *out_error = cstr(e);
             1
         }
         Err(_) => {
+            tracing::error!(code = 2, "Signing panicked");
             *out_error = cstr("panic during signing");
             2
         }

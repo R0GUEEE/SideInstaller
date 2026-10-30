@@ -2059,9 +2059,11 @@ final class Engine: ObservableObject {
             log("Signed bundle at \(path)")
             return path
         } else {
-            let msg = error.map { String(cString: $0) } ?? "rc=\(rc)"
+            let raw = error.map { String(cString: $0) } ?? ""
             error.map { si_string_free($0) }
-            log("Sign FAILED: \(msg)")
+            let msg = raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? "No diagnostic returned by the signer (rc=\(rc))." : raw
+            log("Sign FAILED (rc=\(rc)): \(msg)")
             if Self.isCertExistsError(msg) { throw EngineError.certExists }
             if Self.isAppIDLimitError(msg) { throw EngineError.appIDLimit }
             if Self.isUnderageError(msg) { throw EngineError.underage }
