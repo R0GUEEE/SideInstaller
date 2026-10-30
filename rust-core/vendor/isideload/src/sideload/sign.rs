@@ -1,7 +1,7 @@
 use apple_codesign_quick::{
     BundleSigningSettings, ProvisioningProfile, RustCryptoCmsSigner, sign_bundle,
 };
-use plist::Dictionary;
+use plist::{Dictionary, Value};
 use rootcause::prelude::*;
 use tracing::info;
 
@@ -43,6 +43,7 @@ pub fn sign(
     );
 
     let entitlements = entitlements(&profile, special, team);
+    let main_bundle_id = app.main_bundle_id().unwrap_or_default();
 
     clear_old_signatures(app)?;
 
@@ -58,9 +59,15 @@ pub fn sign(
         settings
             .embedded_mobileprovisions_by_bundle_id
             .insert(bundle_id.to_string(), profile_der);
-        settings
-            .entitlements_by_bundle_id
-            .insert(bundle_id.to_string(), entitlements.clone());
+        // An extension is a separate App ID: handing it the app's
+        // `application-identifier` makes codesign embed an identity that
+        // doesn't match the bundle. The rest of the profile's declarations --
+        // capabilities, aps-environment, keychain groups -- are shared, so only
+        // the identity-bearing values are re-pointed.
+        settings.entitlements_by_bundle_id.insert(
+            bundle_id.to_string(),
+            entitlements_for_extension(&entitlements, &main_bundle_id, bundle_id, &team.team_id),
+        );
     }
 
     info!(
@@ -102,6 +109,48 @@ fn clear_old_signatures(app: &Application) -> Result<(), Report> {
     Ok(())
 }
 
+/// The app's declarations, re-identified for one extension: the bundle
+/// identifier changes, everything the profile grants stays.
+///
+/// `application-identifier` is the value codesign embeds in the signature, and
+/// for an extension it has to name the extension. Keychain groups are re-pointed
+/// the same way when they carry the app's identifier; a group that doesn't
+/// mention it belongs to someone else and is left alone.
+fn entitlements_for_extension(
+    base: &Dictionary,
+    main: &str,
+    extension: &str,
+    team_id: &str,
+) -> Dictionary {
+    let mut out = base.clone();
+
+    let identifier = out
+        .get("application-identifier")
+        .and_then(Value::as_string)
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("{team_id}.{main}"));
+    let prefix = identifier.split('.').next().unwrap_or(team_id).to_string();
+    out.insert(
+        "application-identifier".to_string(),
+        Value::String(format!("{prefix}.{extension}")),
+    );
+
+    if let Some(Value::Array(groups)) = out.get("keychain-access-groups").cloned() {
+        let rewritten = groups
+            .into_iter()
+            .map(|group| match group {
+                Value::String(text) if !main.is_empty() => {
+                    Value::String(text.replace(main, extension))
+                }
+                other => other,
+            })
+            .collect::<Vec<_>>();
+        out.insert("keychain-access-groups".to_string(), Value::Array(rewritten));
+    }
+
+    out
+}
+
 /// The profile's entitlements, plus the keychain groups LiveContainer needs.
 fn entitlements(
     profile: &ProvisioningProfile,
@@ -133,4 +182,62 @@ fn entitlements(
     }
 
     entitlements
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn dictionary(pairs: &[(&str, Value)]) -> Dictionary {
+        let mut out = Dictionary::new();
+        for (key, value) in pairs {
+            out.insert((*key).to_string(), value.clone());
+        }
+        out
+    }
+
+    #[test]
+    fn extension_identity_replaces_the_app_identity() {
+        let base = dictionary(&[
+            ("application-identifier", Value::String("TEAM.com.example.app".into())),
+            ("get-task-allow", Value::Boolean(true)),
+        ]);
+        let out = entitlements_for_extension(&base, "com.example.app",
+                                             "com.example.app.Widget", "TEAM");
+        assert_eq!(
+            out.get("application-identifier").unwrap().as_string(),
+            Some("TEAM.com.example.app.Widget")
+        );
+        // Everything the profile grants stays.
+        assert_eq!(out.get("get-task-allow").unwrap().as_boolean(), Some(true));
+    }
+
+    #[test]
+    fn keychain_groups_follow_the_extension_but_foreign_groups_do_not() {
+        let base = dictionary(&[(
+            "keychain-access-groups",
+            Value::Array(vec![
+                Value::String("TEAM.com.example.app".into()),
+                Value::String("TEAM.com.example.app.shared".into()),
+                Value::String("TEAM.com.other.app".into()),
+            ]),
+        )]);
+        let out = entitlements_for_extension(&base, "com.example.app",
+                                             "com.example.app.Widget", "TEAM");
+        let groups = out.get("keychain-access-groups").unwrap().as_array().unwrap();
+        let text: Vec<&str> = groups.iter().filter_map(Value::as_string).collect();
+        assert_eq!(text[0], "TEAM.com.example.app.Widget");
+        assert_eq!(text[1], "TEAM.com.example.app.Widget.shared");
+        assert_eq!(text[2], "TEAM.com.other.app");
+    }
+
+    #[test]
+    fn a_profile_without_application_identifier_still_gets_one() {
+        let out = entitlements_for_extension(&Dictionary::new(), "com.example.app",
+                                             "com.example.app.Widget", "TEAM");
+        assert_eq!(
+            out.get("application-identifier").unwrap().as_string(),
+            Some("TEAM.com.example.app.Widget")
+        );
+    }
 }

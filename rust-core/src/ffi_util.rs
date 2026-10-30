@@ -9,8 +9,9 @@ pub fn cstr(s: impl Into<Vec<u8>>) -> *mut c_char {
     match CString::new(bytes) {
         Ok(value) => value.into_raw(),
         Err(error) => {
-            let mut escaped = Vec::with_capacity(error.as_bytes().len());
-            for &byte in error.as_bytes() {
+            let bytes = error.into_vec();
+            let mut escaped = Vec::with_capacity(bytes.len());
+            for byte in bytes {
                 if byte == 0 { escaped.extend_from_slice(b"\\0"); }
                 else { escaped.push(byte); }
             }
