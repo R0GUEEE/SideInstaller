@@ -321,7 +321,8 @@ struct ContentView: View {
                     animateIcon: engine.isRunning, compact: true,
                     trailingActions: AnyView(resetButton)) {
             statusPill
-                .transition(.opacity.combined(with: .scale(scale: 0.85, anchor: .top)))
+                .lineLimit(1)
+                .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .trailing)))
                 .id(statusPillID)
         }
     }

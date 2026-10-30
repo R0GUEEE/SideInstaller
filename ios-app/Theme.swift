@@ -681,6 +681,8 @@ struct StatusPill: View {
         let label = Label(text, systemImage: systemImage)
             .font(.caption.weight(.semibold))
             .foregroundStyle(color)
+            .lineLimit(1)
+            .minimumScaleFactor(0.85)
             .padding(.horizontal, 12)
             .padding(.vertical, 7)
         // Liquid Glass needs iOS 26+; fall back to the tinted capsule.
@@ -746,30 +748,40 @@ struct BrandHeader<Accessory: View>: View {
     /// One row for the glyph and the title, and the accessory under them. About
     /// 70 points instead of the hero's 140, which is a card's worth of the page
     /// back — on the three tabs that open with a list, that's what matters.
+    /// One row: glyph, title, the status, then the page's own buttons. The
+    /// status sits between the icon and the actions rather than under them, so
+    /// the header is a single band and the title can give way to it.
     private var compactBody: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 10) {
-                glyph
-                    .frame(width: 34, height: 34)
-                    .shadow(color: Theme.glow, radius: 8, x: 0, y: 4)
-                VStack(alignment: .leading, spacing: 1) {
-                    HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Text(title)
-                            .font(.title3.weight(.bold))
-                        if beta { BetaBadge() }
-                    }
-                    if let subtitle {
-                        Text(subtitle)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
+        HStack(spacing: 10) {
+            glyph
+                .frame(width: 34, height: 34)
+                .shadow(color: Theme.glow, radius: 8, x: 0, y: 4)
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(title)
+                        .font(.title3.weight(.bold))
+                        .lineLimit(1)
+                        .layoutPriority(1)
+                    if beta { BetaBadge() }
                 }
-                Spacer(minLength: 8)
-                if let trailingActions { trailingActions }
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
+            Spacer(minLength: 6)
             if hasAccessory {
+                // A status is a label, not a button: it gives way first, so the
+                // title and the actions keep their space.
                 accessory()
+                    .layoutPriority(-1)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if let trailingActions {
+                trailingActions
+                    .layoutPriority(2)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
