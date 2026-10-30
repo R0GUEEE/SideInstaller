@@ -12,6 +12,10 @@ enum SideloadPatch {
         let label: String
     }
 
+    /// Only paths and schemes a *detection check* looks for. Structural names
+    /// are deliberately absent: `embedded.mobileprovision` and `get-task-allow`
+    /// are strings the signer itself joins paths from, and blanking them makes
+    /// the patched app unable to sign anything afterwards.
     static let markers: [Marker] = [
         Marker(needle: "/Applications/Cydia.app", label: "Cydia installed"),
         Marker(needle: "/private/jailbreak.txt", label: "jailbreak marker file"),
@@ -19,8 +23,6 @@ enum SideloadPatch {
         Marker(needle: "/var/jb/", label: "rootless jailbreak root"),
         Marker(needle: "cydia://", label: "Cydia URL scheme"),
         Marker(needle: "sileo://", label: "Sileo URL scheme"),
-        Marker(needle: "embedded.mobileprovision", label: "embedded provisioning profile"),
-        Marker(needle: "get-task-allow", label: "get-task-allow entitlement"),
         Marker(needle: "frida", label: "Frida"),
         Marker(needle: "substrate", label: "Substrate"),
     ]

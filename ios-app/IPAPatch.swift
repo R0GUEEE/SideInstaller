@@ -235,7 +235,12 @@ enum IPAPatch {
             }
             // The detection strings, blanked in place after the injection so
             // the load commands and offsets stay exactly as they were.
-            if config.bypassesSideloadDetection {
+            if config.bypassesSideloadDetection,
+               originalBundleID == Bundle.main.bundleIdentifier {
+                // Our own binary carries the marker strings from the patch's own
+                // table; blanking them here would neuter this app's signer.
+                outcome.warnings.append(L("Sideload bypass skipped: this is SideInstaller itself"))
+            } else if config.bypassesSideloadDetection {
                 let patched = SideloadPatch.patch(binary)
                 if patched.hits.isEmpty {
                     outcome.warnings.append(L("Sideload bypass: nothing recognisable was left to blank"))
