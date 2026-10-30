@@ -135,6 +135,14 @@ enum PlistCatalog {
 }
 
 extension PlistEdit.Kind {
+    /// Only offer edits that round-trip exactly through the simple editor.
+    static func editable(_ value: Any) -> Bool {
+        let kind = of(value)
+        let edit = PlistEdit(key: "value", kind: kind, value: text(value))
+        guard let roundTrip = edit.object else { return false }
+        return NSDictionary(dictionary: ["value": value]).isEqual(to: ["value": roundTrip])
+    }
+
     /// The type a value from a decoded plist should be edited as.
     static func of(_ value: Any) -> PlistEdit.Kind {
         switch value {

@@ -19,7 +19,7 @@ use crate::{
 ///
 /// Every app extension, nested ones too, gets the main app's entitlements and
 /// a copy of its profile, as before the switch: the main profile is the one
-/// that authorizes them (README change 1). apple-codesign-quick gives a nested
+/// which may not authorize them; per-extension provisioning is not implemented. apple-codesign-quick gives a nested
 /// bundle only what is listed for its bundle ID, which by default is no profile
 /// and no entitlements, so each extension is listed. Frameworks and dylibs get
 /// neither, as Xcode signs them.

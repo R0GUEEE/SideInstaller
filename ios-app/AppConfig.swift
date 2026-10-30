@@ -763,16 +763,9 @@ final class AppConfigStore: ObservableObject {
         config.version = info["CFBundleShortVersionString"] as? String ?? ""
         config.build = info["CFBundleVersion"] as? String ?? ""
 
-        let modes = (info["UIBackgroundModes"] as? [String]) ?? []
-        set(modes.contains("audio"), for: .backgroundAudio)
-        set(modes.contains("location"), for: .backgroundLocation)
-        set((info["UIFileSharingEnabled"] as? Bool) == true
-            || (info["LSSupportsOpeningDocumentsInPlace"] as? Bool) == true,
-            for: .documentBrowser)
-        set(entitlements["com.apple.developer.kernel.increased-memory-limit"] != nil,
-            for: .increasedMemory)
-        set(entitlements["com.apple.developer.networking.wifi-info"] != nil,
-            for: .wifiInfo)
+        // Capabilities are not copied into edits: doing so would replace the
+        // build’s existing arrays and entitlements on an otherwise unchanged install.
+
     }
 
     /// Forgets what a run was given, once the run is over: identity, plist and
@@ -807,7 +800,7 @@ final class AppConfigStore: ObservableObject {
     private static func loadConfig() -> AppConfig {
         guard let data = UserDefaults.standard.data(forKey: defaultsKey),
               let config = try? JSONDecoder().decode(AppConfig.self, from: data),
-              config.schema == 2
+              config.schema == 3
         else { return AppConfig() }
         return config
     }

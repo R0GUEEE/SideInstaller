@@ -5,6 +5,19 @@ import Foundation
 func L(_ key: String) -> String { key }
 func L(_ key: String, _ arguments: CVarArg...) -> String { key }
 
+// Configuration and plist editor regression checks run before archive tests.
+do {
+    var saved = AppConfig()
+    saved.plistEdits = [PlistEdit(key: "UIBackgroundModes", kind: .array, value: "audio, fetch")]
+    let loaded = try JSONDecoder().decode(AppConfig.self, from: JSONEncoder().encode(saved))
+    precondition(loaded.schema == 3 && loaded.plistEdits == saved.plistEdits)
+    precondition(PlistEdit.Kind.editable(["audio", "fetch"]))
+    precondition(!PlistEdit.Kind.editable(["a,b"]))
+    precondition(!PlistEdit.Kind.editable(["nested": "dictionary"]))
+    precondition(!PlistEdit.Kind.editable(1.25))
+    precondition(!PlistEdit.Kind.editable(Data([1, 2])))
+}
+
 // Arguments: <ipa> <tweak.dylib> [deb] [deb]
 guard CommandLine.arguments.count >= 3 else {
     FileHandle.standardError.write(Data("usage: patch-selftest <ipa> <tweak.dylib> [deb]\n".utf8))
@@ -88,36 +101,24 @@ do {
 
     // An identifier outside the app's is re-prefixed from the folder.
     let fixed = IPAPatch.nestedIdentifier(current: "com.other.widget",
-                                          appBefore: appBefore, appAfter: appBefore,
+                                          appBefore: appBefore, appAfter: appAfter,
                                           stem: "Widget", isWatch: false)
-    if fixed != "com.example.app.Widget" {
+    if fixed != "com.example.renamed.Widget" {
         print("FAILED: stray extension identifier wasn't fixed: \(fixed)")
         exit(1)
     }
 
     // A watch app gets its own suffix rule.
     let watch = IPAPatch.nestedIdentifier(current: "", appBefore: appBefore,
-                                          appAfter: appBefore, stem: "WatchApp", isWatch: true)
-    if watch != "com.example.app.WatchApp.watchkitapp" {
+                                          appAfter: appAfter, stem: "WatchApp", isWatch: true)
+    if watch != "com.example.renamed.WatchApp.watchkitapp" {
         print("FAILED: watch identifier wrong: \(watch)")
         exit(1)
     }
 
-    // Entitlements follow the extension, team prefix intact.
-    let base: [String: Any] = [
-        "application-identifier": "TEAM123.com.example.app",
-        "keychain-access-groups": ["TEAM123.com.example.app"],
-        "get-task-allow": true,
-    ]
-    let scoped = IPAPatch.entitlements(base, for: "com.example.app.Widget",
-                                       from: "com.example.app")
-    if (scoped["application-identifier"] as? String) != "TEAM123.com.example.app.Widget" {
-        print("FAILED: extension entitlement identity wasn't rewritten")
-        exit(1)
-    }
-    if (scoped["keychain-access-groups"] as? [String])?.first != "TEAM123.com.example.app.Widget" {
-        print("FAILED: extension keychain group wasn't rewritten")
-        exit(1)
-    }
-    print("EXTENSIONS: identifiers and entitlements check out")
+    let unchanged = IPAPatch.nestedIdentifier(current: "com.other.widget",
+                                             appBefore: appBefore, appAfter: appBefore,
+                                             stem: "Widget", isWatch: false)
+    if unchanged != "com.other.widget" { fatalError("Unchanged parent rewrote nested ID") }
+    print("EXTENSIONS: identifier checks passed")
 }

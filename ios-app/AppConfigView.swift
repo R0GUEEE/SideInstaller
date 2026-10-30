@@ -55,7 +55,7 @@ struct AppConfigView: View {
         var name = ""
         var version = ""
         var build = ""
-        var plist: [(key: String, kind: PlistEdit.Kind, text: String)] = []
+        var plist: [(key: String, kind: PlistEdit.Kind, text: String, editable: Bool)] = []
         var entitlements: [(key: String, text: String)] = []
         var extensions: [String] = []
         /// The file the values came from, shown so it's clear which build they
@@ -159,7 +159,7 @@ struct AppConfigView: View {
             // interface before the long tail of privacy strings.
             result.plist = info.keys.sorted().compactMap { key in
                 guard let value = info[key] else { return nil }
-                return (key, PlistEdit.Kind.of(value), PlistEdit.Kind.text(value))
+                return (key, PlistEdit.Kind.of(value), PlistEdit.Kind.text(value), PlistEdit.Kind.editable(value))
             }
             let entitlements = IPAPatch.readEntitlements(from: url) ?? [:]
             result.entitlements = entitlements.keys.sorted().compactMap { key in
@@ -465,7 +465,11 @@ struct AppConfigView: View {
 
     /// Tapping a key in the build adds it to the edit list, prefilled — so
     /// changing something is one tap, not a retyped key.
-    private func adoptPlistEntry(_ entry: (key: String, kind: PlistEdit.Kind, text: String)) {
+    private func adoptPlistEntry(_ entry: (key: String, kind: PlistEdit.Kind, text: String, editable: Bool)) {
+        guard entry.editable else {
+            note = L("This value cannot be safely edited by the simple plist editor.")
+            return
+        }
         if let index = store.config.plistEdits.firstIndex(where: { $0.key == entry.key }) {
             store.config.plistEdits.remove(at: index)
             note = L("%@ set back to the build's value.", entry.key)

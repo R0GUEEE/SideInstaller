@@ -133,18 +133,19 @@ enum IPAPatch {
 
         // MARK: Entitlements
         // The signature the installer writes carries the profile's entitlements,
-        // so these are what the build *declares* — the file the signer reads
-        // when it looks for an app's own list.
-        var declaredEntitlements: [String: Any] = [:]
+        // so these edits affect only the build’s archived declarations; the
+        // vendored signer does not use them as signing entitlements.
         if !config.entitlements.isEmpty || config.bypassesSideloadDetection {
             let entitlementsPath = prefix + "archived-expanded-entitlements.xcent"
             var entitlements: [String: Any] = [:]
-            if let existing = entries.first(where: { $0.name == entitlementsPath }),
-               let raw = try contents(of: existing, in: source),
-               let decoded = try? PropertyListSerialization.propertyList(from: raw, options: [], format: nil)
-                as? [String: Any] {
+            if let existing = entries.first(where: { $0.name == entitlementsPath }) {
+                guard let raw = try contents(of: existing, in: source),
+                      let decoded = try? PropertyListSerialization.propertyList(from: raw, options: [], format: nil) as? [String: Any] else {
+                    throw PatchError.corrupt(entitlementsPath)
+                }
                 entitlements = decoded
             }
+            let originalEntitlements = entitlements as NSDictionary
             for edit in config.entitlements {
                 guard let value = edit.object else { continue }
                 let key = edit.key.trimmed
@@ -161,8 +162,8 @@ enum IPAPatch {
                     outcome.applied.append(L("Sideload bypass: get-task-allow left to the profile"))
                 }
             }
-            declaredEntitlements = entitlements
-            if let data = try? PropertyListSerialization.data(fromPropertyList: entitlements,
+            if !originalEntitlements.isEqual(to: entitlements),
+               let data = try? PropertyListSerialization.data(fromPropertyList: entitlements,
                                                              format: .binary, options: 0) {
                 replacements[entitlementsPath] = data
                 replacedModes[entitlementsPath] = entries.first { $0.name == entitlementsPath }?
@@ -172,21 +173,9 @@ enum IPAPatch {
 
         // MARK: Nested bundles — extensions and watch apps
         //
-        // Each one is its own bundle with its own App ID, and iOS requires that
-        // ID to sit under the app's. Three things follow, and all of them are
-        // what "the extension is signed properly" means:
-        //
-        // 1. the identifier is re-prefixed when the app was renamed, keeping
-        //    the extension's own name (`LiveActivity`) rather than the folder's
-        //    (`SideInstallerLiveActivity`);
-        // 2. it gets its own entitlements file, with `application-identifier`
-        //    and keychain groups naming *it* — a signer that reads the app's
-        //    list for an extension writes the wrong identity;
-        // 3. its old embedded profile is dropped, since it names the identifier
-        //    that no longer exists.
+        // Preserve profiles and extension-specific entitlement files unchanged.
         let appIDBefore = originalBundleID ?? ""
         let appIDAfter = newBundleID.isEmpty ? appIDBefore : newBundleID
-        var nestedIDs: [(path: String, title: String, id: String)] = []
 
         for (path, isWatch) in nestedBundles(in: entries, under: prefix, dropping: droppedPrefixes) {
             guard let entry = entries.first(where: { $0.name == path + "Info.plist" }),
@@ -209,23 +198,6 @@ enum IPAPatch {
                     replacedModes[path + "Info.plist"] = entry.externalAttributes
                     outcome.applied.append(L("%@: %@ → %@", leaf, currentID, wanted))
                 }
-            }
-            nestedIDs.append((path, leaf, wanted.isEmpty ? currentID : wanted))
-            droppedPrefixes.append(path + "embedded.mobileprovision")
-        }
-
-        // The same declarations, under each extension's own identity.
-        if !declaredEntitlements.isEmpty {
-            for nested in nestedIDs where !nested.id.isEmpty {
-                let adjusted = entitlements(declaredEntitlements, for: nested.id, from: appIDAfter)
-                guard let data = try? PropertyListSerialization.data(fromPropertyList: adjusted,
-                                                                     format: .binary, options: 0)
-                else { continue }
-                let path = nested.path + "archived-expanded-entitlements.xcent"
-                replacements[path] = data
-                replacedModes[path] = entries.first { $0.name == path }?.externalAttributes
-                    ?? (0o100644 << 16)
-                outcome.applied.append(L("%@: its own entitlements", nested.title))
             }
         }
 
@@ -510,7 +482,7 @@ enum IPAPatch {
     /// otherwise the folder's.
     static func nestedIdentifier(current: String, appBefore: String,
                                  appAfter: String, stem: String, isWatch: Bool) -> String {
-        guard !appAfter.isEmpty else { return current }
+        guard !appBefore.isEmpty, !appAfter.isEmpty, appBefore != appAfter else { return current }
         let prefix: String
         if !appBefore.isEmpty, current.hasPrefix(appBefore + ".") {
             prefix = String(current.dropFirst(appBefore.count))
@@ -522,38 +494,6 @@ enum IPAPatch {
         return appAfter + prefix
     }
 
-    /// The app's declarations, renamed for one extension: the team prefix stays,
-    /// the bundle identifier changes.
-    static func entitlements(_ base: [String: Any], for bundleID: String,
-                             from appID: String) -> [String: Any] {
-        var out = base
-        if let identifier = out["application-identifier"] as? String {
-            let team = identifier.split(separator: ".").first.map(String.init) ?? ""
-            out["application-identifier"] = team.isEmpty ? bundleID : "\(team).\(bundleID)"
-        } else if !appID.isEmpty {
-            out["application-identifier"] = bundleID
-        }
-        if let groups = out["keychain-access-groups"] as? [String] {
-            out["keychain-access-groups"] = groups.map { group in
-                guard let dot = group.firstIndex(of: ".") else { return group }
-                return String(group[..<dot]) + "." + bundleID
-            }
-        }
-        return out
-    }
-
-    // MARK: - Reading the archive
-
-    struct Entry {
-        let name: String
-        let method: UInt16
-        let flags: UInt16
-        let crc: UInt32
-        let compressedSize: Int
-        let uncompressedSize: Int
-        let externalAttributes: UInt32
-        let localHeaderOffset: Int
-    }
 
     private static func directory(_ handle: FileHandle, fileSize: Int) throws -> [Entry] {
         let tailLength = min(fileSize, 65_557)

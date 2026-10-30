@@ -19,7 +19,7 @@ it only to the main `.app`. App extensions got nothing, even though
 `register_app_ids` registered an App ID for each of them (it no longer does,
 change 12) and `sign::sign` signs every nested bundle with the *main* app's entitlements
 (`SettingsScope::Main`) — AltStore's "use main profile" arrangement. So the
-signature was fine and only the file was missing.
+signature could be produced, but the main profile may not authorize an extension’s ID or capabilities; compatibility is not guaranteed.
 
 That is enough to brick SideStore. `DatabaseManager.prepareDatabase()` walks
 `appExtensions` on every launch and `InstalledExtension.init` throws when a

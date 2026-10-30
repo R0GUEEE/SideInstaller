@@ -20,6 +20,27 @@ pub struct Application {
     //pub temp_path: PathBuf,
 }
 
+/// A child must start at a component boundary and have a non-empty suffix.
+fn is_child_bundle_id(parent: &str, child: &str) -> bool {
+    !parent.is_empty() && child.strip_prefix(parent)
+        .and_then(|suffix| suffix.strip_prefix('.'))
+        .map_or(false, |suffix| !suffix.is_empty())
+}
+
+#[cfg(test)]
+mod extension_id_tests {
+    use super::is_child_bundle_id;
+
+    #[test]
+    fn requires_a_nonempty_child_at_a_component_boundary() {
+        assert!(is_child_bundle_id("com.example.app", "com.example.app.widget"));
+        assert!(!is_child_bundle_id("com.example.app", "com.example.application.widget"));
+        assert!(!is_child_bundle_id("com.example.app", "com.example.app"));
+        assert!(!is_child_bundle_id("com.example.app", "com.example.app."));
+        assert!(!is_child_bundle_id("", ".widget"));
+    }
+}
+
 impl Application {
     pub fn new(path: PathBuf) -> Result<Self, Report> {
         if !path.exists() {
@@ -143,11 +164,11 @@ impl Application {
         let extensions = self.bundle.app_extensions_mut();
         for ext in extensions.iter_mut() {
             if let Some(id) = ext.bundle_identifier() {
-                if !(id.starts_with(main_app_bundle_id) && id.len() > main_app_bundle_id.len()) {
+                if !is_child_bundle_id(main_app_bundle_id, id) {
                     bail!(SideloadError::InvalidBundle(format!(
-                        "Extension {} is not part of the main app bundle identifier: {}",
+                        "Extension {} has bundle identifier {}: expected a non-empty child of {} followed by a dot",
                         ext.bundle_name().unwrap_or("Unknown"),
-                        id
+                        id, main_app_bundle_id
                     )));
                 } else {
                     ext.set_bundle_identifier(&format!(
