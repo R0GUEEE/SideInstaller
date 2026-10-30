@@ -5,6 +5,16 @@ All notable changes to SideInstaller are documented here.
 ## Unreleased
 
 ### Changed
+- **The Install tab is two cards now: what to install, and how.** **App selection** holds the build
+  dropdown and its version, the custom `.ipa` button with its file/link controls, bulk install, and
+  the one-line summary of the next run. **Configuration** holds everything else in two folds:
+  **IPA configuration** (identity, Info.plist and entitlements, capabilities, sideload-detection
+  bypass, pairing) and **Tweak configuration** (tweak storage and browser, injection path and folder,
+  the in-app-purchase switch, and the tweaks themselves). Each fold's header says how much of it is
+  set — `identity · 2 plist key(s) · bypass`, `3 tweak(s)` — so the card reads as configured without
+  being opened.
+
+### Changed
 - **The Install tab is laid out around the action.** The Install button is pinned to the bottom of
   the tab — it no longer scrolls away, and the run's progress reads in place of it without moving
   anything else. Above it, what blocks a run now comes first (an unsupported iOS, Wi-Fi, the tunnel),

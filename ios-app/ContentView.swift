@@ -18,10 +18,9 @@ struct ContentView: View {
     @State private var showAppConfig = false
     /// True while the pairing-file picker is up.
     @State private var showPairingImporter = false
-    /// The pairing-file choice, as a sheet opened from the install menu's chip.
-    @State private var showPairingOptions = false
-    /// The signing configuration's expander under the install menu.
-    @State private var signingExpanded = false
+    /// The two collapsible halves of the configuration card.
+    @State private var ipaExpanded = false
+    @State private var tweaksExpanded = false
     /// When false, the timeline shows only the current step.
     @State private var stepsExpanded = false
     /// True while the Install button is held down. Its surface is drawn outside
@@ -49,9 +48,10 @@ struct ContentView: View {
                     // if this run must pair, the missing tunnel.
                     requirements.cascadeItem(1)
                     installCard.cascadeItem(2)
+                    configCard.cascadeItem(3)
                     // Everything that isn't the next install: queued builds, a
                     // link on the clipboard, the pairing file.
-                    activity.cascadeItem(3)
+                    activity.cascadeItem(4)
                     // Guides, the pairing code, errors and success show as
                     // `InstallPopup`, which `RootView` lays over the app.
                     footer.cascadeItem(6)
@@ -110,9 +110,6 @@ struct ContentView: View {
                 .ignoresSafeArea()
             }
             .sheet(isPresented: $showAppConfig) { AppConfigView() }
-            .sheet(isPresented: $showPairingOptions) {
-                PairingOptionsSheet(engine: engine)
-            }
             .sheet(isPresented: $showPairingImporter) {
                 FileImporterRepresentableView(allowedContentTypes: UTType.pairingFileTypes) { urls in
                     guard let url = urls.first else { return }   // empty means cancelled
@@ -474,7 +471,7 @@ struct ContentView: View {
     private var installCard: some View {
         PanelCard {
             VStack(alignment: .leading, spacing: 14) {
-                sectionTitle(L("Install"), systemImage: "square.and.arrow.down.fill")
+                sectionTitle(L("App selection"), systemImage: "square.and.arrow.down.fill")
 
                 HStack(spacing: 10) {
                     presetMenu
@@ -497,24 +494,6 @@ struct ContentView: View {
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
-
-                signingSection
-
-                Divider().opacity(0.15)
-
-                // What an install needs outside the build itself.
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        if engine.canSelfPair {
-                            InstallOptionChip(icon: "lock.doc.fill",
-                                              title: L("Pairing"),
-                                              value: engine.importedPairingName ?? L("Automatic")) {
-                                showPairingOptions = true
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 2)
-                }
             }
             // On the whole card, so it also resizes smoothly when a slot goes.
             .animation(.smooth(duration: 0.28), value: engine.installSource)
@@ -727,45 +706,82 @@ struct ContentView: View {
         queue.start()
     }
 
-    /// The signing configuration, folded away until it's wanted: identity,
-    /// plists, capabilities, libraries and tweaks.
-    private var signingSection: some View {
+    /// The configuration, as its own card and in two halves: the bundle that
+    /// gets signed, and what gets loaded beside it. Both fold away, and each
+    /// says how much of itself is set.
+    private var configCard: some View {
+        PanelCard {
+            VStack(alignment: .leading, spacing: 12) {
+                sectionTitle(L("Configuration"), systemImage: "slider.horizontal.3")
+                collapsible(title: L("IPA configuration"),
+                            icon: "doc.badge.gearshape",
+                            detail: ipaConfigurationDetail,
+                            expanded: $ipaExpanded) {
+                    InstallSigningPanel(part: .ipa)
+                }
+                Divider().opacity(0.12)
+                collapsible(title: L("Tweak configuration"),
+                            icon: "syringe",
+                            detail: tweakConfigurationDetail,
+                            expanded: $tweaksExpanded) {
+                    InstallSigningPanel(part: .tweaks)
+                }
+            }
+        }
+        .disabled(engine.isRunning)
+    }
+
+    /// One foldable section of the configuration card.
+    private func collapsible<Content: View>(title: String, icon: String, detail: String,
+                                            expanded: Binding<Bool>,
+                                            @ViewBuilder content: @escaping () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Button {
-                withAnimation(.smooth(duration: 0.3)) { signingExpanded.toggle() }
+                withAnimation(.smooth(duration: 0.3)) { expanded.wrappedValue.toggle() }
             } label: {
                 HStack(spacing: 8) {
-                    Label(L("Signing configuration"), systemImage: "signature")
+                    Label(title, systemImage: icon)
                         .font(.footnote.weight(.semibold))
                         .foregroundStyle(.secondary)
                     Spacer(minLength: 6)
-                    Text(signingSummary)
+                    Text(detail)
                         .font(.caption2)
-                        .foregroundStyle(appConfig.config.summary.isEmpty
-                             ? AnyShapeStyle(.tertiary) : AnyShapeStyle(Theme.accent2))
+                        .foregroundStyle(.tertiary)
                         .lineLimit(1)
                     Image(systemName: "chevron.down")
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(.tertiary)
-                        .rotationEffect(.degrees(signingExpanded ? 180 : 0))
+                        .rotationEffect(.degrees(expanded.wrappedValue ? 180 : 0))
                 }
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
 
-            if signingExpanded {
-                InstallSigningPanel()
+            if expanded.wrappedValue {
+                content()
                     .transition(.opacity.combined(with: .offset(y: -4)))
             }
         }
     }
 
-    /// A line for the expander's header: how much of the configuration differs
-    /// from the build's own values.
-    private var signingSummary: String {
-        let changes = appConfig.config.summary.count
-        if changes == 0 { return L("Default") }
-        return L("%d change(s)", changes)
+    /// How much of the IPA half is set: identity, plist keys, entitlements,
+    /// capabilities and the detection switch, against the build's own values.
+    private var ipaConfigurationDetail: String {
+        var parts: [String] = []
+        let config = appConfig.config
+        if !config.displayName.trimmed.isEmpty || !config.bundleIdentifier.trimmed.isEmpty {
+            parts.append(L("identity"))
+        }
+        if !config.plistEdits.isEmpty { parts.append(L("%d plist key(s)", config.plistEdits.count)) }
+        if !config.entitlements.isEmpty { parts.append(L("%d entitlement(s)", config.entitlements.count)) }
+        if config.bypassesSideloadDetection { parts.append(L("bypass")) }
+        return parts.isEmpty ? L("Default") : parts.joined(separator: " · ")
+    }
+
+    /// What the tweak half holds.
+    private var tweakConfigurationDetail: String {
+        let count = appConfig.config.tweaks.count
+        return count == 0 ? L("None") : L("%d tweak(s)", count)
     }
 
     /// The two ways in for a custom build: pick a file, or paste a link.

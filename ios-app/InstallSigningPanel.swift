@@ -5,6 +5,16 @@ import UniformTypeIdentifiers
 /// plist and entitlement editing, capabilities, the libraries a build loads, and
 /// the tweaks patched into it with the injectors they need.
 struct InstallSigningPanel: View {
+
+    /// Which half of the configuration this instance draws. The two are shown
+    /// as separate collapsible sections on the Install tab.
+    enum Part {
+        case ipa
+        case tweaks
+    }
+
+    var part: Part = .ipa
+
     @ObservedObject private var config = AppConfigStore.shared
     @ObservedObject private var library = TweakLibrary.shared
     @EnvironmentObject private var loc: Localizer
@@ -16,19 +26,73 @@ struct InstallSigningPanel: View {
     @State private var showLibrary = false
     /// What the in-app-purchase switch last did.
     @State private var iapNote: String?
+    /// The pairing-file sheet.
+    @State private var showPairing = false
 
     var body: some View {
+        Group {
+            switch part {
+            case .ipa:    ipaPart
+            case .tweaks: tweakPart
+            }
+        }
+        .sheet(isPresented: $showAppConfig) { AppConfigView() }
+        .sheet(isPresented: $showBrowser) { TweakBrowserView(store: config) }
+        .sheet(isPresented: $showLibrary) { TweakLibraryView() }
+        .sheet(isPresented: $showPairing) { PairingOptionsSheet(engine: engine) }
+    }
+
+    /// Everything about the bundle being signed: what it's called, what it
+    /// declares, what iOS grants it, and how this iPhone pairs.
+    private var ipaPart: some View {
         VStack(alignment: .leading, spacing: 18) {
             identity
             plistRows
             capabilities
             detection
+            if engine.canSelfPair { pairingRow }
+        }
+    }
+
+    /// Everything loaded beside the executable.
+    private var tweakPart: some View {
+        VStack(alignment: .leading, spacing: 18) {
             libraries
             tweaks
         }
-        .sheet(isPresented: $showAppConfig) { AppConfigView() }
-        .sheet(isPresented: $showBrowser) { TweakBrowserView(store: config) }
-        .sheet(isPresented: $showLibrary) { TweakLibraryView() }
+    }
+
+    /// The optional pairing file, as a row rather than a chip: it belongs with
+    /// the other decisions about how this build is signed and installed.
+    private var pairingRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            group(L("Pairing"), systemImage: "lock.doc.fill")
+            Button { showPairing = true } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: engine.importedPairingName == nil
+                          ? "lock.iphone" : "checkmark.seal.fill")
+                        .foregroundStyle(engine.importedPairingName == nil
+                                         ? AnyShapeStyle(.secondary) : AnyShapeStyle(.green))
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(engine.importedPairingName == nil ? L("Automatic") : L("Imported file"))
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(.primary)
+                        Text(engine.importedPairingName ?? L("SideInstaller pairs this iPhone itself."))
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    Spacer(minLength: 4)
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                }
+                .fieldBackground()
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
     }
 
     // MARK: Identity
