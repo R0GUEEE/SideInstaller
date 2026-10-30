@@ -82,6 +82,9 @@ enum IPAPatch {
         else { throw PatchError.notAnIPA }
 
         var plistChanged = false
+        // What the build called itself, before anything above rewrites it: the
+        // nested-bundle rename below is only for a real rename.
+        let originalBundleID = info["CFBundleIdentifier"] as? String
         let newBundleID = config.bundleIdentifier.trimmed
         if !newBundleID.isEmpty, (info["CFBundleIdentifier"] as? String) != newBundleID {
             info["CFBundleIdentifier"] = newBundleID
@@ -164,8 +167,12 @@ enum IPAPatch {
 
         // MARK: Nested bundle identifiers
         // An extension keeps its own App ID, and iOS requires it to sit under
-        // the app's, so a renamed app renames its extensions with it.
-        if !newBundleID.isEmpty {
+        // the app's, so a renamed app renames its extensions with it. Only when
+        // the app itself was renamed: adopting a build's own identifier would
+        // otherwise rewrite its extensions for nothing — and an extension whose
+        // ID no longer matches its profile is a signing failure.
+        let bundleIDChanged = !newBundleID.isEmpty && newBundleID != originalBundleID
+        if bundleIDChanged {
             for (path, suffix) in nestedBundles(in: entries, under: prefix, dropping: droppedPrefixes) {
                 guard let entry = entries.first(where: { $0.name == path + "Info.plist" }),
                       let raw = try contents(of: entry, in: source),

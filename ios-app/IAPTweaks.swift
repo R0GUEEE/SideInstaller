@@ -64,7 +64,7 @@ enum IAPTweaks {
             var added = 0
             var missing: [String] = []
             for entry in entries where !contains(entry, in: store) {
-                guard let url = bundled(entry.fileName) else {
+                guard let data = data(for: entry.fileName) else {
                     missing.append(entry.fileName)
                     continue
                 }
@@ -72,7 +72,7 @@ enum IAPTweaks {
                     .appendingPathComponent(entry.fileName)
                 try? FileManager.default.removeItem(at: staging)
                 do {
-                    try FileManager.default.copyItem(at: url, to: staging)
+                    try data.write(to: staging, options: .atomic)
                     if store.addTweaks([staging]).added == 1 { added += 1 }
                 } catch {
                     missing.append(entry.fileName)
@@ -109,14 +109,24 @@ enum IAPTweaks {
         }
     }
 
-    /// Where a bundled library is. A folder reference in the project can land in
-    /// the bundle root or under `Resources/`, so every place it might be is
+    /// A library's bytes, decoded from its base64 copy in the bundle.
+    ///
+    /// The three are stored encoded, not as Mach-O: a raw `.dylib` in Resources
+    /// is unsigned nested code, and codesign refuses to sign the app around it.
+    /// Decoding costs a moment when the switch is turned on.
+    static func data(for fileName: String) -> Data? {
+        guard let url = bundled(fileName + ".b64"),
+              let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        let stripped = text.filter { !$0.isWhitespace }
+        return Data(base64Encoded: stripped)
+    }
+
+    /// Where a bundled resource is. A folder reference in the project can land
+    /// in the bundle root or under `Resources/`, so every place it might be is
     /// tried.
     static func bundled(_ fileName: String) -> URL? {
         let bundle = Bundle.main
-        let bare = (fileName as NSString).deletingPathExtension
         let candidates: [URL?] = [
-            bundle.url(forResource: bare, withExtension: "dylib"),
             bundle.url(forResource: fileName, withExtension: nil),
             bundle.bundleURL.appendingPathComponent(fileName),
             bundle.bundleURL.appendingPathComponent("IAPTweaks/\(fileName)"),

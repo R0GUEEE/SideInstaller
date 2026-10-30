@@ -4,6 +4,17 @@ All notable changes to SideInstaller are documented here.
 
 ## Unreleased
 
+### Fixed
+- **Signing failed on a build that bundles the in-app-purchase patches.** The three `.dylib` files
+  were shipped as they are inside `IAPTweaks/`, which is unsigned nested code in a bundle codesign
+  has to sign — the signer refused with an empty error. They are stored base64-encoded now and
+  decoded into a temporary file when the switch is turned on, so nothing executable sits in
+  Resources.
+- **An adopted bundle ID no longer renames app extensions.** Importing a build writes its own
+  identifier into the configuration; applying that back renamed the extension to
+  `<id>.SideInstallerLiveActivity`, which no longer matched its profile. The rename now happens only
+  when the app itself was actually renamed.
+
 ### Changed
 - **The Install tab is two cards now: what to install, and how.** **App selection** holds the build
   dropdown and its version, the custom `.ipa` button with its file/link controls, bulk install, and
