@@ -494,6 +494,18 @@ enum IPAPatch {
         return appAfter + prefix
     }
 
+    // MARK: - Reading the archive
+
+    struct Entry {
+        let name: String
+        let method: UInt16
+        let flags: UInt16
+        let crc: UInt32
+        let compressedSize: Int
+        let uncompressedSize: Int
+        let externalAttributes: UInt32
+        let localHeaderOffset: Int
+    }
 
     private static func directory(_ handle: FileHandle, fileSize: Int) throws -> [Entry] {
         let tailLength = min(fileSize, 65_557)
