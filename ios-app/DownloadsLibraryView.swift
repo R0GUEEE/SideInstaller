@@ -15,6 +15,8 @@ struct DownloadsLibraryView: View {
 
     @StateObject private var manager = DownloadsManager()
     @State private var pendingDelete: DownloadedIPA?
+    /// What the last cleanup did.
+    @State private var cleanupNote: String?
     /// The name the app calls itself, read out of the `.ipa`'s own Info.plist.
     /// A file downloaded as `com.burbn.instagram.ipa` is still Instagram.
     @State private var appNames: [String: String] = [:]
@@ -31,6 +33,7 @@ struct DownloadsLibraryView: View {
                         ForEach(visible) { item in
                             row(item)
                         }
+                        cleanupCard
                     }
                 }
                 .padding(14)
@@ -63,6 +66,39 @@ struct DownloadsLibraryView: View {
             } message: { item in
                 Text(L("%@ (%@) is removed from this iPhone. An app already installed from it stays.",
                        name(item), item.sizeText))
+            }
+        }
+    }
+
+    /// One build per app, on demand: the same cleanup runs after every install.
+    private var cleanupCard: some View {
+        PanelCard {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(L("Older builds"))
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Text(L("Keep only the newest .ipa of each app. Older downloads of the same app are deleted; the app installed from them is untouched."))
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button {
+                    let result = DownloadsManager.keepNewestOnly()
+                    manager.refresh()
+                    cleanupNote = result.removed == 0
+                        ? L("Every app already has a single build here.")
+                        : L("Removed %d older build(s), %@ back.", result.removed,
+                            ByteCountFormatter.string(fromByteCount: Int64(result.freed), countStyle: .file))
+                    Haptics.success()
+                } label: {
+                    Label(L("Remove older builds"), systemImage: "arrow.down.to.line.compact")
+                }
+                .buttonStyle(SecondaryButtonStyle())
+                if let cleanupNote {
+                    Text(cleanupNote)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
     }

@@ -2124,6 +2124,12 @@ final class Engine: ObservableObject {
         let cached = IPACache.store(url, bundleID: info.bundleID,
                                     displayName: signedDisplayName ?? info.name)
         IPACache.prune()
+        // One build per app on disk: an older download of the same app is of no
+        // use once this one is installed, and it is what fills the phone up.
+        let cleaned = DownloadsManager.keepNewestOnly()
+        if cleaned.removed > 0 {
+            log("Downloads: kept only the newest build of each app — removed \(cleaned.removed) older file(s), \(ByteCountFormatter.string(fromByteCount: Int64(cleaned.freed), countStyle: .file)) back.")
+        }
         // The history is what makes "roll back to the last build" possible, and
         // it's written from the same facts the cache just used.
         InstallHistory.shared.record(bundleID: info.bundleID,
