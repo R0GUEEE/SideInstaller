@@ -169,10 +169,7 @@ struct ToolsView: View {
             ScrollView {
                 VStack(spacing: 18) {
                     header.cascadeItem(0)
-                    if query.isEmpty {
-                        settingsCard.cascadeItem(1)
-                    }
-                    searchField.cascadeItem(2)
+                    searchField.cascadeItem(1)
 
                     if visibleSections.isEmpty {
                         noMatches.cascadeItem(2)
@@ -190,7 +187,7 @@ struct ToolsView: View {
                                     }
                                 }
                             }
-                            .cascadeItem(min(index + 3, 7))
+                            .cascadeItem(min(index + 2, 6))
                         }
                     }
                 }
@@ -199,6 +196,7 @@ struct ToolsView: View {
             }
             // Still unless the sections don't all fit on the screen.
             .scrollBounceBehavior(.basedOnSize)
+            .navigationBarTitleDisplayMode(.inline)
             .background(AppBackground())
             .sheet(item: $sheet) { destination in page(destination) }
             // A link's source arrives here, prefilled and ready to add.
@@ -219,26 +217,26 @@ struct ToolsView: View {
     // MARK: Header
 
     private var header: some View {
-        BrandHeader(icon: "wrench.and.screwdriver.fill", title: L("Tools"), compact: true) {
+        BrandHeader(icon: "wrench.and.screwdriver.fill", title: L("Tools"), compact: true,
+                    trailingActions: AnyView(settingsButton)) {
             StatusPill(text: L("%d pages", allEntries.count),
                        systemImage: "square.grid.2x2.fill",
                        color: Theme.accent2)
         }
     }
 
-    /// Settings used to be a gear in every screen's top-right corner. It's a page
-    /// of the menu now, first, because it's where the app itself is configured.
-    private var settingsCard: some View {
-        PanelCard {
-            Button { sheet = .settings } label: {
-                ToolRow(entry: ToolEntry(id: "settings",
-                                         title: L("Settings"),
-                                         detail: L("Account, tunnel, renewals, storage and logs"),
-                                         icon: "gearshape.fill",
-                                         destination: .settings))
-            }
-            .buttonStyle(.plain)
+    /// Settings sits beside the page title: the header row has room, and a
+    /// toolbar band above it was pure empty space.
+    private var settingsButton: some View {
+        Button { sheet = .settings } label: {
+            Image(systemName: "gearshape.fill")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Theme.accent2)
+                .frame(width: 32, height: 32)
+                .background(Circle().fill(Color.primary.opacity(0.07)))
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel(L("Settings"))
     }
 
     private var searchField: some View {

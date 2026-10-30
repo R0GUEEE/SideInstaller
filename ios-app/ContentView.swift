@@ -92,19 +92,11 @@ struct ContentView: View {
                     linkFieldFocused = false
                 }
             }
+            .navigationBarTitleDisplayMode(.inline)
             .background(AppBackground())
             .overlay(alignment: .top) { installToast }
             .animation(.smooth(duration: 0.3), value: engine.toast?.id)
             .sheet(isPresented: $showTrustSteps) { trustSteps }
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { resetMenu() } label: {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                    .disabled(engine.isRunning || engine.isImportingIPA)
-                    .accessibilityLabel(L("Clear the install menu"))
-                }
-            }
             .sheet(isPresented: $showImporter) {
                 FileImporterRepresentableView(allowedContentTypes: [.ipa]) { urls in
                     guard let url = urls.first else { return }   // empty means cancelled
@@ -143,6 +135,22 @@ struct ContentView: View {
         appConfig.clearAfterInstall()
         engine.resetInstallMenu()
         Haptics.tap()
+    }
+
+    /// Clears everything the menu was given. Sits beside the title: the page
+    /// has no navigation title, so a toolbar item would float alone in a band
+    /// of empty space.
+    private var resetButton: some View {
+        Button { resetMenu() } label: {
+            Image(systemName: "arrow.clockwise")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Theme.accent2)
+                .frame(width: 32, height: 32)
+                .background(Circle().fill(Color.primary.opacity(0.07)))
+        }
+        .buttonStyle(.plain)
+        .disabled(engine.isRunning || engine.isImportingIPA)
+        .accessibilityLabel(L("Clear the install menu"))
     }
 
     // MARK: Post-install toast
@@ -310,7 +318,8 @@ struct ContentView: View {
 
     private var header: some View {
         BrandHeader(icon: "arrow.down.app.fill", image: "AppLogo", title: "SideInstaller",
-                    animateIcon: engine.isRunning, compact: true) {
+                    animateIcon: engine.isRunning, compact: true,
+                    trailingActions: AnyView(resetButton)) {
             statusPill
                 .transition(.opacity.combined(with: .scale(scale: 0.85, anchor: .top)))
                 .id(statusPillID)

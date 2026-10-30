@@ -870,21 +870,7 @@ struct AppsView: View {
         }
         .background(AppBackground())
         .scrollDismissesKeyboard(.interactively)
-        .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                updatesToolbarButton
-                reloadToolbarButton
-                Menu {
-                    Picker(L("Sort by"), selection: $sort) {
-                        ForEach(Sort.allCases) { order in
-                            Text(order.title).tag(order)
-                        }
-                    }
-                } label: {
-                    Image(systemName: "arrow.up.arrow.down")
-                }
-            }
-        }
+        .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showUpdates) {
             UpdatesSheet(manager: manager, updates: updates) { batch in
                 Task { await updateAll(batch.map { ($0.status, $0.version, $0.url) }) }
@@ -927,7 +913,12 @@ struct AppsView: View {
 
     private var header: some View {
         BrandHeader(icon: "app.badge.clock", image: "AppsLogo", title: L("My Apps"),
-                    compact: true) {
+                    compact: true,
+                    trailingActions: AnyView(HStack(spacing: 6) {
+                        updatesToolbarButton
+                        reloadToolbarButton
+                        sortMenu
+                    })) {
             if manager.hasLoaded {
                 let expiring = manager.expiringSoon
                 StatusPill(text: expiring > 0
@@ -962,6 +953,23 @@ struct AppsView: View {
             }
         }
         .fieldBackground()
+    }
+
+    /// The sort order, beside the title with the other two actions.
+    private var sortMenu: some View {
+        Menu {
+            Picker(L("Sort by"), selection: $sort) {
+                ForEach(Sort.allCases) { order in
+                    Text(order.title).tag(order)
+                }
+            }
+        } label: {
+            Image(systemName: "arrow.up.arrow.down")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Theme.accent2)
+                .frame(width: 32, height: 32)
+                .background(Circle().fill(Color.primary.opacity(0.07)))
+        }
     }
 
     // MARK: Toolbar actions

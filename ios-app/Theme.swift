@@ -723,6 +723,9 @@ struct BrandHeader<Accessory: View>: View {
     /// The tab pages' header: a small glyph beside the title, then the
     /// accessory, instead of a hero that takes a third of the screen.
     var compact = false
+    /// Controls drawn at the trailing edge of the compact row, beside the title
+    /// rather than in a navigation bar above it.
+    var trailingActions: AnyView? = nil
     @ViewBuilder var accessory: () -> Accessory
 
     @Environment(\.verticalSizeClass) private var verticalSizeClass
@@ -763,6 +766,7 @@ struct BrandHeader<Accessory: View>: View {
                     }
                 }
                 Spacer(minLength: 8)
+                if let trailingActions { trailingActions }
             }
             if hasAccessory {
                 accessory()
