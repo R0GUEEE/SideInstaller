@@ -4,6 +4,15 @@ All notable changes to SideInstaller are documented here.
 
 ## Unreleased
 
+### Changed
+- **The Install tab is laid out around the action.** The Install button is pinned to the bottom of
+  the tab — it no longer scrolls away, and the run's progress reads in place of it without moving
+  anything else. Above it, what blocks a run now comes first (an unsupported iOS, Wi-Fi, the tunnel),
+  then the build and its configuration, then only the cards that have something to say: the queue
+  when it has builds, the clipboard when it holds a link, the pairing file where one is required. A
+  one-line summary under the controls says what the next run will actually do — build and release,
+  changes, tweaks, detection bypass.
+
 ### Added
 - **Sideload-detection bypass, applied automatically when a build looks like it checks.** Importing an
   `.ipa` scans its executable for the usual tells — the Cydia path, `cydia://`/`sileo://`,

@@ -40,50 +40,21 @@ struct ContentView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 18) {
+                VStack(spacing: 14) {
                     header.cascadeItem(0)
                     if updateChecker.showBanner {
                         updateBanner.transition(.cardAppear)
                     }
-                    installCard.cascadeItem(1)
-                    queueCard.cascadeItem(2)
-                    clipboardCard.cascadeItem(3)
-                    // Below iOS 27 a pairing file must be imported, so show the
-                    // import card.
-                    if showsPairingCard {
-                        pairingFileCard.cascadeItem(2)
-                    }
-                    // Most-blocking requirement first: an unsupported iOS, then
-                    // Wi-Fi if this run must pair, then the missing tunnel.
-                    if !engine.isRunning {
-                        if !engine.osSupported {
-                            osRequirement.cascadeItem(cascade(2))
-                        // Only a run that pairs itself needs Wi-Fi; an imported
-                        // pairing file never touches the local network.
-                        } else if !engine.wifiConnected, engine.needsFreshPairing, engine.canSelfPair {
-                            wifiRequirement.cascadeItem(cascade(2))
-                        // Not when Install starts LocalDevVPN itself.
-                        } else if !engine.tunnelAvailable {
-                            vpnRequirement.cascadeItem(cascade(2))
-                        }
-                    }
-                    // The Install button, which grows into the run's progress.
-                    // Drawn over what follows, so the button below tucks in
-                    // under it.
-                    installSurface
-                        .cascadeItem(cascade(3))
-                        .zIndex(1)
-                    // The progress outlives its run, so the button comes back
-                    // under it. The cascade handles its entrance (including
-                    // on a tab switch), so the transition only covers removal.
-                    if showProgress && !engine.isRunning {
-                        installButton
-                            .cascadeItem(cascade(4))
-                            .transition(.asymmetric(insertion: .identity, removal: .tuckUnder))
-                    }
+                    // What blocks a run comes first: an unsupported iOS, Wi-Fi
+                    // if this run must pair, the missing tunnel.
+                    requirements.cascadeItem(1)
+                    installCard.cascadeItem(2)
+                    // Everything that isn't the next install: queued builds, a
+                    // link on the clipboard, the pairing file.
+                    activity.cascadeItem(3)
                     // Guides, the pairing code, errors and success show as
                     // `InstallPopup`, which `RootView` lays over the app.
-                    footer.cascadeItem(cascade(6))
+                    footer.cascadeItem(6)
                 }
                 .padding(20)
                 .pageColumn()
@@ -113,6 +84,7 @@ struct ContentView: View {
                 }
             }
             .background(AppBackground())
+            .safeAreaInset(edge: .bottom, spacing: 0) { installBar }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { resetMenu() } label: {
@@ -163,6 +135,53 @@ struct ContentView: View {
         appConfig.clearAfterInstall()
         engine.resetInstallMenu()
         Haptics.tap()
+    }
+
+    // MARK: Layout pieces
+
+    /// The blocking requirements, most important first.
+    @ViewBuilder
+    private var requirements: some View {
+        if !engine.isRunning {
+            if !engine.osSupported {
+                osRequirement
+            // Only a run that pairs itself needs Wi-Fi; an imported pairing file
+            // never touches the local network.
+            } else if !engine.wifiConnected, engine.needsFreshPairing, engine.canSelfPair {
+                wifiRequirement
+            // Not when Install starts LocalDevVPN itself.
+            } else if !engine.tunnelAvailable {
+                vpnRequirement
+            }
+        }
+    }
+
+    /// The cards that are about something other than this install: the queue,
+    /// the clipboard, the pairing file.
+    @ViewBuilder
+    private var activity: some View {
+        queueCard
+        clipboardCard
+        if showsPairingCard { pairingFileCard }
+    }
+
+    /// The Install button, pinned to the bottom of the tab, which grows into the
+    /// run's progress. Keeping it here means the action is one tap away however
+    /// far the page is scrolled — and the progress stays readable while the
+    /// configuration above it is still on screen.
+    private var installBar: some View {
+        VStack(spacing: 8) {
+            installSurface
+            // The progress outlives its run, so the button comes back under it.
+            if showProgress && !engine.isRunning {
+                installButton
+                    .transition(.asymmetric(insertion: .identity, removal: .tuckUnder))
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 10)
+        .padding(.bottom, 6)
+        .background(.ultraThinMaterial)
     }
 
     // MARK: Derived visibility
@@ -472,6 +491,13 @@ struct ContentView: View {
                 }
                 bulkInstallButton
 
+                // One line for what the next run will do, assembled from the
+                // same state the controls above write.
+                Text(installSummary)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+
                 signingSection
 
                 Divider().opacity(0.15)
@@ -540,6 +566,25 @@ struct ContentView: View {
             .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
         .buttonStyle(.plain)
+    }
+
+    /// What the Install button will do, in one line: the build and release,
+    /// then whatever the configuration adds.
+    private var installSummary: String {
+        var parts: [String] = []
+        switch engine.installSource {
+        case .custom:
+            parts.append(engine.customIPAName ?? L("No .ipa chosen yet"))
+        default:
+            parts.append(installTargetName)
+        }
+        let changes = appConfig.config.summary.count
+        if changes > 0 { parts.append(L("%d change(s)", changes)) }
+        if !appConfig.config.tweaks.isEmpty {
+            parts.append(L("%d tweak(s)", appConfig.config.tweaks.count))
+        }
+        if appConfig.config.bypassesSideloadDetection { parts.append(L("detection bypass")) }
+        return parts.joined(separator: " · ")
     }
 
     /// The release to install, right beside the build it belongs to.
