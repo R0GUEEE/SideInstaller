@@ -141,6 +141,10 @@ jobs:
           unzip -tq Test.ipa
           echo "::endgroup::"
           echo "::group::zero-byte member"
+          echo "— entries mentioning python:"
+          unzip -l Test.ipa | grep -i python || true
+          echo "— zero-length entries:"
+          unzip -l Test.ipa | awk '$1 == 0 { print }' | head -5
           rm -rf "$WORK/zero" && mkdir -p "$WORK/zero"
           unzip -q -o Test.ipa '*python/lib/python3.13/test/__init__.py' -d "$WORK/zero"
           EMPTY=$(find "$WORK/zero" -type f -name __init__.py | head -1)
