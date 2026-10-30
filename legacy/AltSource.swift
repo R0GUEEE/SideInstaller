@@ -1,7 +1,7 @@
-// Preserved from the pre-fork `feat/sources-and-ipa-inspector` branch, which
-// has no common history with this repository's main line. The app's live source
-// model is `SourceParser.swift`; this type is kept so the work isn't lost, and
-// is not referenced by the app.
+// Preserved from the pre-fork `feat/sources-and-ipa-inspector` branch, whose
+// history has nothing in common with main's. It is kept for reference only and
+// lives outside `ios-app/` because it declares its own `SourceStore`, which
+// collides with the app's. The live source model is `ios-app/SourceParser.swift`.
 
 import Foundation
 
