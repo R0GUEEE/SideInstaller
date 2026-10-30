@@ -39,8 +39,6 @@ targets:
     dependencies:
       - framework: SideInstallerFFI.xcframework
         embed: false
-      # Embedded as PlugIns/SideInstallerLiveActivity.appex.
-      - target: SideInstallerLiveActivity
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.frizzle.sideinstaller
@@ -48,24 +46,3 @@ targets:
         # idevice's static lib pulls in C++ symbols (aws-lc); link libc++.
         OTHER_LDFLAGS: "-lc++"
         GENERATE_INFOPLIST_FILE: NO
-
-  # Draws the pairing Live Activity: the code Settings asks for, in the Dynamic
-  # Island and on the Lock Screen. A Live Activity's views have to live in a
-  # widget extension; the app starts and updates it (PairingLiveActivity.swift).
-  # Also draws an install's progress below iOS 26 (InstallActivity.swift).
-  SideInstallerLiveActivity:
-    type: app-extension
-    platform: iOS
-    sources:
-      - path: ios-live-activity
-      # What the activities show, shared with the app.
-      - path: ios-app/PairingActivityAttributes.swift
-      - path: ios-app/InstallActivityAttributes.swift
-    settings:
-      base:
-        # Has to stay the app's identifier plus a suffix, or iOS refuses to
-        # install the app. Change both together.
-        PRODUCT_BUNDLE_IDENTIFIER: com.frizzle.sideinstaller.LiveActivity
-        INFOPLIST_FILE: ios-live-activity/Info.plist
-        GENERATE_INFOPLIST_FILE: NO
-        SKIP_INSTALL: YES
