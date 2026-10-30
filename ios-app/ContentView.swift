@@ -50,12 +50,18 @@ struct ContentView: View {
                     installCard.cascadeItem(2)
                     signingCard.cascadeItem(3)
                     configCard.cascadeItem(4)
+                    // The action sits under the configuration it acts on, not
+                    // pinned over it: nothing is hidden behind a dock.
+                    installSurface.cascadeItem(5)
+                    if showProgress && !engine.isRunning {
+                        installButton.cascadeItem(6)
+                    }
                     // Everything that isn't the next install: queued builds, a
                     // link on the clipboard, the pairing file.
-                    activity.cascadeItem(5)
+                    activity.cascadeItem(7)
                     // Guides, the pairing code, errors and success show as
                     // `InstallPopup`, which `RootView` lays over the app.
-                    footer.cascadeItem(6)
+                    footer.cascadeItem(8)
                 }
                 .padding(20)
                 .pageColumn()
@@ -85,7 +91,6 @@ struct ContentView: View {
                 }
             }
             .background(AppBackground())
-            .safeAreaInset(edge: .bottom, spacing: 0) { installBar }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { resetMenu() } label: {
@@ -161,25 +166,6 @@ struct ContentView: View {
         queueCard
         clipboardCard
         if showsPairingCard { pairingFileCard }
-    }
-
-    /// The Install button, pinned to the bottom of the tab, which grows into the
-    /// run's progress. Keeping it here means the action is one tap away however
-    /// far the page is scrolled — and the progress stays readable while the
-    /// configuration above it is still on screen.
-    private var installBar: some View {
-        VStack(spacing: 8) {
-            installSurface
-            // The progress outlives its run, so the button comes back under it.
-            if showProgress && !engine.isRunning {
-                installButton
-                    .transition(.asymmetric(insertion: .identity, removal: .tuckUnder))
-            }
-        }
-        .padding(.horizontal, 20)
-        .padding(.top, 10)
-        .padding(.bottom, 6)
-        .background(.ultraThinMaterial)
     }
 
     // MARK: Derived visibility
@@ -972,7 +958,8 @@ struct ContentView: View {
             if showProgress {
                 progressContent
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(18)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
                     .transition(.surfaceSwap)
             } else {
                 Button(action: startInstall) {
@@ -1238,33 +1225,54 @@ struct ContentView: View {
 
     /// What the install surface holds as a card; `installSurface` draws the
     /// card itself.
+    /// The run's status, kept to one line and a thin bar: the page above it is
+    /// the configuration, and the timeline only appears when asked for.
     private var progressContent: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(spacing: 10) {
-                Text(progressTitle)
-                    .font(.headline)
-                    .contentTransition(.opacity)
-                Spacer(minLength: 4)
-                Text("\(Int(engine.overallProgress * 100))%")
-                    .font(.headline.monospacedDigit())
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 9) {
+                Image(systemName: statusSymbol)
+                    .font(.subheadline.weight(.semibold))
                     .foregroundStyle(progressTint)
+                    .symbolEffect(.pulse, isActive: engine.isRunning && !runFailed)
+                Text(compactStatus)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .contentTransition(.opacity)
+                Spacer(minLength: 6)
+                Text("\(Int(engine.overallProgress * 100))%")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
                     .contentTransition(.numericText(value: engine.overallProgress))
-                    .animation(.smooth(duration: 0.3), value: engine.overallProgress)
-                stepsDisclosure
-                // Only a run in flight can be cancelled.
                 if engine.isRunning {
                     cancelButton
                         .transition(.opacity.combined(with: .scale(scale: 0.6)))
                 }
+                stepsDisclosure
             }
 
-            InstallProgressBar(progress: engine.overallProgress,
-                               tint: progressTint,
-                               gradient: progressGradient,
-                               animating: engine.isRunning && !engine.finished && !runFailed)
+            ProgressView(value: engine.overallProgress)
+                .tint(progressTint)
 
-            stepSection
+            if stepsExpanded {
+                stepSection
+                    .padding(.top, 2)
+            }
         }
+    }
+
+    private var statusSymbol: String {
+        if runFailed { return "exclamationmark.triangle.fill" }
+        if engine.finished { return "checkmark.circle.fill" }
+        return "arrow.triangle.2.circlepath"
+    }
+
+    /// One line: what the run is doing, or how it ended.
+    private var compactStatus: String {
+        if engine.finished { return L("Installed") }
+        if engine.isCancelling { return L("Cancelling") }
+        let step = currentStep.title(for: engine.installSource)
+        return runFailed ? L("Stopped at %@", step) : L("Installing · %@", step)
     }
 
     private var progressTitle: String {
