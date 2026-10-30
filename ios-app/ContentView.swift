@@ -30,6 +30,8 @@ struct ContentView: View {
     @State private var confirmingCancel = false
     /// Text in the IPA download-link field.
     @State private var ipaLink = ""
+    /// The post-install toast's trust steps, when it's tapped.
+    @State private var showTrustSteps = false
     /// The line of installs, and what the clipboard last offered.
     @ObservedObject private var queue = InstallQueue.shared
     @State private var clipboardURL: URL?
@@ -91,6 +93,9 @@ struct ContentView: View {
                 }
             }
             .background(AppBackground())
+            .overlay(alignment: .top) { installToast }
+            .animation(.smooth(duration: 0.3), value: engine.toast?.id)
+            .sheet(isPresented: $showTrustSteps) { trustSteps }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { resetMenu() } label: {
@@ -138,6 +143,106 @@ struct ContentView: View {
         appConfig.clearAfterInstall()
         engine.resetInstallMenu()
         Haptics.tap()
+    }
+
+    // MARK: Post-install toast
+
+    /// What happened, in a card that goes away by itself: the run's news and the
+    /// one step left, instead of a screen-filling overlay with a Done button.
+    @ViewBuilder
+    private var installToast: some View {
+        if let toast = engine.toast {
+            Button {
+                showTrustSteps = true
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: toast.needsTrust ? "checkmark.seal.fill" : "checkmark.circle.fill")
+                        .font(.subheadline)
+                        .foregroundStyle(.green)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(toast.title)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.primary)
+                        Text(toast.detail)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                    }
+                    Spacer(minLength: 4)
+                    if toast.needsTrust {
+                        Image(systemName: "chevron.right")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(.ultraThinMaterial,
+                            in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.08)))
+                .padding(.horizontal, 20)
+                .padding(.top, 6)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .transition(.move(edge: .top).combined(with: .opacity))
+            // Gone on its own after a few seconds; tapping opens the steps.
+            .task(id: toast.id) {
+                try? await Task.sleep(nanoseconds: 6_000_000_000)
+                if engine.toast?.id == toast.id {
+                    withAnimation(.smooth(duration: 0.3)) { engine.toast = nil }
+                }
+            }
+        }
+    }
+
+    /// The trust steps behind the toast.
+    private var trustSteps: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    if let guide = engine.guide {
+                        Label(guide.title, systemImage: guide.systemImage)
+                            .font(.headline)
+                        ForEach(Array(guide.steps.enumerated()), id: \.offset) { index, step in
+                            HStack(alignment: .top, spacing: 10) {
+                                Text("\(index + 1)")
+                                    .font(.caption.weight(.bold))
+                                    .frame(width: 20, height: 20)
+                                    .background(Circle().fill(Theme.accent.opacity(0.18)))
+                                Text(step)
+                                    .font(.subheadline)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                        if let label = guide.actionLabel, let link = guide.actionURLString,
+                           let url = URL(string: link) {
+                            Button {
+                                openURL(url)
+                            } label: {
+                                Text(label).frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(PrimaryButtonStyle())
+                        }
+                    } else {
+                        Text(L("The app is installed. Open Settings › VPN & Device Management to trust it."))
+                            .font(.subheadline)
+                    }
+                }
+                .padding(20)
+                .pageColumn()
+            }
+            .background(AppBackground())
+            .navigationTitle(L("Trust this app"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(L("Done")) { showTrustSteps = false }
+                }
+            }
+        }
     }
 
     // MARK: Layout pieces

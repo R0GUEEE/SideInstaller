@@ -326,6 +326,14 @@ final class Engine: ObservableObject {
     /// What the last imported build looked like it checks for sideloading, for
     /// the signing panel. Nil until an import has been scanned.
     @Published private(set) var sideloadFindings: SideloadGuard.Report?
+    /// A run that just finished, for the small card that dismisses itself.
+    struct InstallToast: Identifiable, Equatable {
+        let id = UUID()
+        var title: String
+        var detail: String
+        var needsTrust: Bool
+    }
+    @Published var toast: InstallToast?
     /// What the imported build calls itself. Shown as a placeholder in the
     /// configuration, never written into it: a build that hasn't been touched
     /// must reach the signer exactly as it was published.
@@ -837,17 +845,15 @@ final class Engine: ObservableObject {
         return shown
     }
 
-    /// A finished run's popups: the trust step, the news, and LiveContainer's
-    /// certificate import. With all three up the news leads, so both steps
-    /// follow it; otherwise it comes after the trust step it points to.
+    /// A finished run's popups. The news and the trust step are no longer cards
+    /// in the stack: the app says what happened in a toast that dismisses
+    /// itself, and the steps move to the install menu's configuration — a
+    /// finished install shouldn't hold the screen hostage. LiveContainer's
+    /// certificate import stays a popup, since nothing else asks for it.
     private var finishedPopups: [Popup] {
-        let trust = guide.map(Popup.guide)
         let certificate: Popup? = installedIsLiveContainer && !liveContainerImportClosed
             ? .liveContainerImport : nil
-        let leads = trust != nil && certificate != nil
-        let success: Popup? = successClosed ? nil : .success(installedSourceName, leads: leads)
-        return (leads ? [success, trust, certificate] : [trust, success, certificate])
-            .compactMap { $0 }
+        return [certificate].compactMap { $0 }
     }
 
     /// True for a popup the run is waiting on: closing it cancels the install.
@@ -2684,7 +2690,11 @@ final class Engine: ObservableObject {
         setGuide(signedAppIsMadeira(source)
                  ? Guides.trustMadeira(holding: madeiraHandoff)
                  : Guides.trust(appName: installedAppName))
-        log("✅ Done — \(installedSourceName) is installed. One trust step left (see the card).")
+        toast = InstallToast(
+            title: L("Installed %@", installedSourceName),
+            detail: L("Open Settings › VPN & Device Management to trust it."),
+            needsTrust: true)
+        log("✅ Done — \(installedSourceName) is installed. Trust it in Settings › VPN & Device Management.")
     }
 
     // MARK: - FFI liveness check
@@ -3250,6 +3260,7 @@ final class Engine: ObservableObject {
             try? FileManager.default.removeItem(at: imported)
         }
         customIPAName = nil
+        toast = nil
         sideloadFindings = nil
         buildIdentity = nil
         buildExtensions = []
