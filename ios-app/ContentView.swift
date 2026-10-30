@@ -48,10 +48,11 @@ struct ContentView: View {
                     // if this run must pair, the missing tunnel.
                     requirements.cascadeItem(1)
                     installCard.cascadeItem(2)
-                    configCard.cascadeItem(3)
+                    signingCard.cascadeItem(3)
+                    configCard.cascadeItem(4)
                     // Everything that isn't the next install: queued builds, a
                     // link on the clipboard, the pairing file.
-                    activity.cascadeItem(4)
+                    activity.cascadeItem(5)
                     // Guides, the pairing code, errors and success show as
                     // `InstallPopup`, which `RootView` lays over the app.
                     footer.cascadeItem(6)
@@ -704,6 +705,58 @@ struct ContentView: View {
         guard queued > 0 else { return }
         engine.log("Queued \(queued) .ipa file(s) to install one after another.")
         queue.start()
+    }
+
+    /// What a run needs besides the build: a certificate, the tunnel, and any
+    /// plugins the app ships — read before the install, so a failure has a
+    /// reason attached to it.
+    private var signingCard: some View {
+        PanelCard {
+            VStack(alignment: .leading, spacing: 10) {
+                sectionTitle(L("Signing"), systemImage: "checkmark.seal")
+                row(ok: !engine.normalizedAppleID.isEmpty, icon: "person.badge.key",
+                    title: engine.normalizedAppleID.isEmpty
+                        ? L("Sign in with an Apple ID")
+                        : L("Apple ID saved"),
+                    detail: engine.normalizedAppleID.isEmpty ? nil : LogRedactor.maskAppleID(engine.normalizedAppleID))
+                row(ok: engine.tunnelAvailable || engine.startsVPNWhenNeeded, icon: "shield.lefthalf.filled",
+                    title: engine.tunnelAvailable ? L("Tunnel up") : L("Tunnel needed"),
+                    detail: engine.deviceHost)
+                row(ok: !engine.buildExtensions.isEmpty, icon: "puzzlepiece.extension",
+                    title: engine.buildExtensions.isEmpty
+                        ? L("No app extensions")
+                        : L("%d extension(s) to sign", engine.buildExtensions.count),
+                    detail: engine.buildExtensions.first?.bundleID,
+                    neutral: engine.buildExtensions.isEmpty)
+                row(ok: !appConfig.config.tweaks.isEmpty, icon: "syringe",
+                    title: appConfig.config.tweaks.isEmpty
+                        ? L("No tweaks")
+                        : L("%d tweak(s)", appConfig.config.tweaks.count),
+                    detail: appConfig.config.tweaks.first?.name,
+                    neutral: appConfig.config.tweaks.isEmpty)
+            }
+        }
+    }
+
+    private func row(ok: Bool, icon: String, title: String, detail: String?,
+                     neutral: Bool = false) -> some View {
+        HStack(spacing: 9) {
+            Image(systemName: neutral ? icon : (ok ? "checkmark.circle.fill" : "exclamationmark.circle.fill"))
+                .font(.caption)
+                .foregroundStyle(neutral ? AnyShapeStyle(.tertiary) : AnyShapeStyle(ok ? .green : .orange))
+                .frame(width: 16)
+            Text(title)
+                .font(.caption.weight(.medium))
+                .lineLimit(1)
+            Spacer(minLength: 6)
+            if let detail, !detail.isEmpty {
+                Text(detail)
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+        }
     }
 
     /// The configuration, as its own card and in two halves: the bundle that

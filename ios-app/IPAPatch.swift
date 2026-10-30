@@ -190,6 +190,9 @@ enum IPAPatch {
             let wanted = nestedIdentifier(current: currentID, appBefore: appIDBefore,
                                           appAfter: appIDAfter, stem: stem, isWatch: isWatch)
 
+            if !currentID.isEmpty, !isChildIdentifier(currentID, of: appIDAfter) {
+                outcome.warnings.append(L("%@ has an identifier outside the app's (%@)", leaf, currentID))
+            }
             if !currentID.isEmpty, currentID != wanted {
                 nested["CFBundleIdentifier"] = wanted
                 if let data = try? PropertyListSerialization.data(fromPropertyList: nested,
@@ -475,6 +478,14 @@ enum IPAPatch {
             out.append((path, isWatch))
         }
         return out
+    }
+
+    /// True when `identifier` is a component-wise child of `app`: `.`-separated,
+    /// non-empty suffix. The boundary matters — `com.a.apple` is not under
+    /// `com.a.app`.
+    static func isChildIdentifier(_ identifier: String, of app: String) -> Bool {
+        guard !app.isEmpty, identifier.hasPrefix(app + ".") else { return false }
+        return identifier.count > app.count + 1
     }
 
     /// The identifier a nested bundle should carry once the app is called

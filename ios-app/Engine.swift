@@ -336,6 +336,16 @@ final class Engine: ObservableObject {
         var build = ""
     }
     @Published private(set) var buildIdentity: BuildIdentity?
+    /// The extension bundles inside the imported IPA: what they are called and
+    /// whether their identifier sits under the app's, which is what iOS (and the
+    /// signer) requires before an extension can be signed with the app.
+    struct BuildExtension: Identifiable, Equatable {
+        var path: String
+        var bundleID: String
+        var isChild: Bool
+        var id: String { path }
+    }
+    @Published private(set) var buildExtensions: [BuildExtension] = []
 
     /// The connected iPhone's UDID and name, from the lockdown handshake.
     private(set) var deviceUDID: String?
@@ -2626,6 +2636,7 @@ final class Engine: ObservableObject {
             guard let info = IPAPatch.readInfoPlist(from: ipa) else { return }
             let entitlements = IPAPatch.readEntitlements(from: ipa) ?? [:]
             let findings = SideloadGuard.scan(ipa)
+            let extensions = IPAExtensions.read(ipa)
             let identity = BuildIdentity(
                 name: (info["CFBundleDisplayName"] as? String) ?? (info["CFBundleName"] as? String) ?? "",
                 bundleID: info["CFBundleIdentifier"] as? String ?? "",
@@ -2636,7 +2647,12 @@ final class Engine: ObservableObject {
             _ = entitlements
             await MainActor.run {
                 self.buildIdentity = identity
+                self.buildExtensions = extensions
                 self.sideloadFindings = findings
+                if !extensions.isEmpty {
+                    let stray = extensions.filter { !$0.isChild }
+                    self.log("Extensions: \(extensions.count) found\(stray.isEmpty ? "" : ", \(stray.count) with an identifier outside the app")")
+                }
                 // Automatic: a build that clearly looks for Cydia, Frida or a
                 // profile is given the patch without being asked — unless the
                 // build is this app, whose own source holds those strings.
@@ -3230,6 +3246,7 @@ final class Engine: ObservableObject {
         customIPAName = nil
         sideloadFindings = nil
         buildIdentity = nil
+        buildExtensions = []
         downloadedIPAPath = nil
         downloadedSource = nil
         downloadedChannel = nil

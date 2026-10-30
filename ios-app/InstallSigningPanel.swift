@@ -47,6 +47,7 @@ struct InstallSigningPanel: View {
     private var ipaPart: some View {
         VStack(alignment: .leading, spacing: 18) {
             identity
+            extensions
             plistRows
             capabilities
             detection
@@ -125,6 +126,50 @@ struct InstallSigningPanel: View {
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .fieldBackground()
+        }
+    }
+
+    // MARK: Extensions
+
+    /// What plugins this build ships. They are signed with the app, and iOS
+    /// requires each one's identifier to sit under the app's — the menu says so
+    /// here, before a run, instead of leaving it to a signer failure.
+    private var extensions: some View {
+        let items = engine.buildExtensions
+        return VStack(alignment: .leading, spacing: 8) {
+            group(L("Extensions"), systemImage: "puzzlepiece.extension")
+            if items.isEmpty {
+                Text(L("This build has no app extensions."))
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            } else {
+                ForEach(items) { item in
+                    HStack(spacing: 8) {
+                        Image(systemName: item.isChild
+                              ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundStyle(item.isChild ? .green : .orange)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(item.path)
+                                .font(.caption.weight(.medium))
+                                .lineLimit(1)
+                            Text(item.bundleID)
+                                .font(.caption2.monospaced())
+                                .foregroundStyle(.tertiary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                        Spacer(minLength: 4)
+                    }
+                    .padding(.vertical, 1)
+                }
+                Text(items.contains(where: { !$0.isChild })
+                     ? L("An extension whose identifier is outside the app's cannot be signed under it. Rename the app (Identity) so the extension is re-prefixed, or remove the extension.")
+                     : L("Each extension is signed with the app and loads the tweaks below it in the same order."))
+                    .font(.caption2)
+                    .foregroundStyle(items.contains { !$0.isChild } ? AnyShapeStyle(.orange) : AnyShapeStyle(.tertiary))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 
