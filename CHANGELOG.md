@@ -5,6 +5,14 @@ All notable changes to SideInstaller are documented here.
 ## Unreleased
 
 ### Fixed
+- **App extensions are prepared for signing properly.** A nested bundle is now given an identifier
+  that sits under the app's — keeping its own name (`LiveActivity`) through a rename instead of
+  taking the folder's, and re-prefixing one that was outside the app at all — gets its **own**
+  entitlements file with `application-identifier` and keychain groups naming it (the team prefix
+  kept), and has its stale `embedded.mobileprovision` dropped so the signer's fresh one is the only
+  one there. What changed is logged per extension: `Widget: com.a.app.Widget → com.a.renamed.Widget`.
+
+### Fixed
 - **An untouched import is signed exactly as published.** Importing an `.ipa` used to copy its
   identity into the configuration, which made every install "configured" — and applying that
   renamed the app's extension to a new identifier, after which the signer failed with an empty

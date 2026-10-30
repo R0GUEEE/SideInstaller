@@ -69,3 +69,55 @@ if CommandLine.arguments.count >= 4 {
         exit(1)
     }
 }
+
+// Extension identifiers and entitlements: what "the extension is signed
+// properly" comes down to. These are pure functions, so they're checked
+// directly rather than through an archive.
+do {
+    let appBefore = "com.example.app"
+    let appAfter = "com.example.renamed"
+
+    // Its own name survives a rename.
+    let kept = IPAPatch.nestedIdentifier(current: "com.example.app.Widget",
+                                         appBefore: appBefore, appAfter: appAfter,
+                                         stem: "RenamedWidget", isWatch: false)
+    if kept != "com.example.renamed.Widget" {
+        print("FAILED: extension kept the wrong identifier through a rename: \(kept)")
+        exit(1)
+    }
+
+    // An identifier outside the app's is re-prefixed from the folder.
+    let fixed = IPAPatch.nestedIdentifier(current: "com.other.widget",
+                                          appBefore: appBefore, appAfter: appBefore,
+                                          stem: "Widget", isWatch: false)
+    if fixed != "com.example.app.Widget" {
+        print("FAILED: stray extension identifier wasn't fixed: \(fixed)")
+        exit(1)
+    }
+
+    // A watch app gets its own suffix rule.
+    let watch = IPAPatch.nestedIdentifier(current: "", appBefore: appBefore,
+                                          appAfter: appBefore, stem: "WatchApp", isWatch: true)
+    if watch != "com.example.app.WatchApp.watchkitapp" {
+        print("FAILED: watch identifier wrong: \(watch)")
+        exit(1)
+    }
+
+    // Entitlements follow the extension, team prefix intact.
+    let base: [String: Any] = [
+        "application-identifier": "TEAM123.com.example.app",
+        "keychain-access-groups": ["TEAM123.com.example.app"],
+        "get-task-allow": true,
+    ]
+    let scoped = IPAPatch.entitlements(base, for: "com.example.app.Widget",
+                                       from: "com.example.app")
+    if (scoped["application-identifier"] as? String) != "TEAM123.com.example.app.Widget" {
+        print("FAILED: extension entitlement identity wasn't rewritten")
+        exit(1)
+    }
+    if (scoped["keychain-access-groups"] as? [String])?.first != "TEAM123.com.example.app.Widget" {
+        print("FAILED: extension keychain group wasn't rewritten")
+        exit(1)
+    }
+    print("EXTENSIONS: identifiers and entitlements check out")
+}
