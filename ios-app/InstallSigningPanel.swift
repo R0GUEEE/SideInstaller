@@ -100,25 +100,27 @@ struct InstallSigningPanel: View {
     private var identity: some View {
         VStack(alignment: .leading, spacing: 8) {
             group(L("Identity"), systemImage: "person.text.rectangle")
-            field(L("App name"), text: Binding(
+            field(L("App name"), prompt: engine.buildIdentity?.name, text: Binding(
                 get: { config.config.displayName },
                 set: { config.config.displayName = $0 }))
-            field(L("Bundle ID"), text: Binding(
+            field(L("Bundle ID"), prompt: engine.buildIdentity?.bundleID, text: Binding(
                 get: { config.config.bundleIdentifier },
                 set: { config.config.bundleIdentifier = $0 }), mono: true)
-            Text(L("Leave a field empty to keep the build's own value. These apply to the .ipa being signed — a preset build is installed exactly as its maintainers published it."))
+            Text(L("A field left empty keeps the build's own value, shown greyed. Nothing is written into the configuration until you type: an untouched import reaches the signer exactly as it was published."))
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
 
-    private func field(_ title: String, text: Binding<String>, mono: Bool = false) -> some View {
+    private func field(_ title: String, prompt: String? = nil,
+                       text: Binding<String>, mono: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title)
                 .font(.caption2)
                 .foregroundStyle(.secondary)
-            TextField(title, text: text)
+            TextField(title, text: text,
+                      prompt: Text((prompt?.isEmpty == false ? prompt! : L("the build's own"))))
                 .font(mono ? .caption.monospaced() : .subheadline)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()

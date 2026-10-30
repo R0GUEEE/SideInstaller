@@ -326,6 +326,16 @@ final class Engine: ObservableObject {
     /// What the last imported build looked like it checks for sideloading, for
     /// the signing panel. Nil until an import has been scanned.
     @Published private(set) var sideloadFindings: SideloadGuard.Report?
+    /// What the imported build calls itself. Shown as a placeholder in the
+    /// configuration, never written into it: a build that hasn't been touched
+    /// must reach the signer exactly as it was published.
+    struct BuildIdentity: Equatable {
+        var name = ""
+        var bundleID = ""
+        var version = ""
+        var build = ""
+    }
+    @Published private(set) var buildIdentity: BuildIdentity?
 
     /// The connected iPhone's UDID and name, from the lockdown handshake.
     private(set) var deviceUDID: String?
@@ -2614,18 +2624,27 @@ final class Engine: ObservableObject {
             guard let info = IPAPatch.readInfoPlist(from: ipa) else { return }
             let entitlements = IPAPatch.readEntitlements(from: ipa) ?? [:]
             let findings = SideloadGuard.scan(ipa)
+            let identity = BuildIdentity(
+                name: (info["CFBundleDisplayName"] as? String) ?? (info["CFBundleName"] as? String) ?? "",
+                bundleID: info["CFBundleIdentifier"] as? String ?? "",
+                version: info["CFBundleShortVersionString"] as? String ?? "",
+                build: info["CFBundleVersion"] as? String ?? "")
+            // Entitlements are read so the panel can say what the build grants;
+            // they are not copied into the configuration.
+            _ = entitlements
             await MainActor.run {
-                AppConfigStore.shared.adopt(info: info, entitlements: entitlements)
+                self.buildIdentity = identity
                 self.sideloadFindings = findings
                 // Automatic: a build that clearly looks for Cydia, Frida or a
-                // profile is given the patch without being asked. The switch in
-                // the panel can still turn it off for this install.
+                // profile is given the patch without being asked — unless the
+                // build is this app, whose own source holds those strings.
                 let store = AppConfigStore.shared
-                if findings.hasPatchable, store.config.detectionBypass == nil {
+                let isSelf = identity.bundleID == Bundle.main.bundleIdentifier
+                if findings.hasPatchable, !isSelf, store.config.detectionBypass == nil {
                     store.config.detectionBypass = true
                     self.log("Sideload detection found (\(findings.markers.joined(separator: ", "))) — bypass on for this install.")
                 }
-                if findings.hasUnpatchable {
+                if findings.hasUnpatchable, !isSelf {
                     self.log("Sideload detection: \(findings.frameworks.joined(separator: ", ")) attests to a server; that can't be patched here.")
                 }
             }
@@ -3208,6 +3227,7 @@ final class Engine: ObservableObject {
         }
         customIPAName = nil
         sideloadFindings = nil
+        buildIdentity = nil
         downloadedIPAPath = nil
         downloadedSource = nil
         downloadedChannel = nil

@@ -151,11 +151,14 @@ enum IPAPatch {
                 entitlements[key] = value
                 outcome.applied.append(L("Entitlement: %@", key))
             }
-            // A development-signed build carries this entitlement; an App Store
-            // one doesn't, and apps check for it.
+            // A development-signed build carries this entitlement and an App
+            // Store one doesn't. It isn't written false: the profile the signer
+            // issues decides its value, and contradicting it fails signing.
+            // Leaving the key out lets the profile speak.
             if config.bypassesSideloadDetection {
-                entitlements["get-task-allow"] = false
-                outcome.applied.append(L("Sideload bypass: get-task-allow off"))
+                if entitlements.removeValue(forKey: "get-task-allow") != nil {
+                    outcome.applied.append(L("Sideload bypass: get-task-allow left to the profile"))
+                }
             }
             if let data = try? PropertyListSerialization.data(fromPropertyList: entitlements,
                                                              format: .binary, options: 0) {
@@ -182,6 +185,10 @@ enum IPAPatch {
                 let wanted = newBundleID + "." + suffix
                 guard (nested["CFBundleIdentifier"] as? String) != wanted else { continue }
                 nested["CFBundleIdentifier"] = wanted
+                // Its embedded profile still names the old identifier; the
+                // signer writes a fresh one, and a stale copy beside it is a
+                // mismatch waiting to happen.
+                droppedPrefixes.append(path + "embedded.mobileprovision")
                 guard let data = try? PropertyListSerialization.data(fromPropertyList: nested,
                                                                      format: .binary, options: 0)
                 else { continue }

@@ -5,6 +5,18 @@ All notable changes to SideInstaller are documented here.
 ## Unreleased
 
 ### Fixed
+- **An untouched import is signed exactly as published.** Importing an `.ipa` used to copy its
+  identity into the configuration, which made every install "configured" — and applying that
+  renamed the app's extension to a new identifier, after which the signer failed with an empty
+  error. The build's name, bundle ID and versions are shown as greyed placeholders now and only
+  written when a field is typed into; the extension rename happens only for a real rename, and a
+  renamed extension's stale embedded profile is dropped rather than left beside the new one.
+- **The detection patch no longer contradicts the profile.** It leaves `get-task-allow` out instead
+  of writing it false: the value comes from the profile the signer issues, and disagreeing with it
+  fails signing. It also stays off for SideInstaller itself, whose own source holds the marker
+  strings it searches for.
+
+### Fixed
 - **Signing failed on a build that bundles the in-app-purchase patches.** The three `.dylib` files
   were shipped as they are inside `IAPTweaks/`, which is unsigned nested code in a bundle codesign
   has to sign — the signer refused with an empty error. They are stored base64-encoded now and
